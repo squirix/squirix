@@ -330,7 +330,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var fingerprint = transferEnabled ? [.. TopologyFingerprint.CreateFromTopology(topology, mtls).Bytes] : Encoding.UTF8.GetBytes("\t");
         var registry = new ReplicaGroupRegistry(dir, [groupId], transferEnabled ? 3 : 1, fingerprint, topology.ConfigurationGeneration, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         await registry.OpenAsync(cancellationToken);
-        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, material, TimeProvider.System), registry, members ?? RocksDoubles.CreateReplicaMembers(), null, memoryPressure) { TransferEnabled = transferEnabled };
+        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, material, TimeProvider.System), registry, members ?? TestDoubles.CreateReplicaMembers(), null, memoryPressure) { TransferEnabled = transferEnabled };
         var header = new EnvelopeHeader
         {
             SchemaVersion = EnvelopeSchema.Version,

@@ -4,7 +4,6 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -19,6 +18,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -95,9 +97,9 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>? items = null;
-        var capture = new ISnapshotEntryCaptureCreateExpectations();
-        _ = capture.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
-                   .Callback((buffer, _, _) =>
+        var capture = ISnapshotEntryCapture.Mock(MockBehavior.Strict);
+        _ = capture.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+                   .ReturnsAsync((buffer, _, _) =>
                     {
                         buffer.Add((CacheKey.Default("k"), new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"))));
                         items = buffer;
@@ -105,7 +107,7 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
                     });
         var opt = ServerJsonSerializer.Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
         var deps = new CoordinatorDependencies(
-            capture.Instance(),
+            capture.Object,
             StoreFactory.CreateWriter(journal.Journal.Options),
             journal.Ledger,
             "n",

@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -17,6 +16,9 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.LedGroupsTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
@@ -185,9 +187,9 @@ public sealed class UnseededRepairTests : IsolatedStorageTestBase
 
     private static IJournalDurabilityCoordinator Durable()
     {
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
-        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
-        return durability.Instance();
+        var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
+        _ = durability.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
+        return durability.Object;
     }
 
     /// <summary>Opens the owner of group n1 with three committed and applied writes; n2 holds the log and n3 lost its disk.</summary>
@@ -223,9 +225,9 @@ public sealed class UnseededRepairTests : IsolatedStorageTestBase
         for (var i = 1; i <= 3; i++)
             cache.Set(new CacheKey("cache", $"k{i}"), new NodeCacheEntry<StoredValue>(StoredValue.FromText($"v{i}")), cancellationToken);
 
-        var locator = new INodeLocatorCreateExpectations();
-        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(GroupId);
-        return new ReplicaStateTransfers(gateway, new ReplicaGroupEntries(cache, locator.Instance()), Durable(), new ReplicaTransferOptions(), NullLogger<ReplicaStateTransfers>.Instance, null)
+        var locator = INodeLocator.Mock(MockBehavior.Strict);
+        _ = locator.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns(GroupId);
+        return new ReplicaStateTransfers(gateway, new ReplicaGroupEntries(cache, locator.Object), Durable(), new ReplicaTransferOptions(), NullLogger<ReplicaStateTransfers>.Instance, null)
         {
             TermCeiling = new ReplicaTermCeiling(statuses, HangGuard),
         };

@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -18,6 +17,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.OwnedLogTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
@@ -87,12 +89,12 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
     [Test]
     public async Task PendingApplyKeepsLog(CancellationToken cancellationToken)
     {
-        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
-                 .Callback(static (_, _, _, _, _) => ValueTask.FromException(new IOException("memory apply failed")));
+        var cache = ILogicalNamespacedCache<StoredValue>.Mock(MockBehavior.Strict);
+        _ = cache.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
+                 .ReturnsAsync(static (_, _, _, _, _) => ValueTask.FromException(new IOException("memory apply failed")));
         using var dir = new TempDirectory("squirix-owned-compaction-pending");
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache.Instance(), NullLogger<ReplicaGroupCommitter>.Instance);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache.Object, NullLogger<ReplicaGroupCommitter>.Instance);
         var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var outcome = await committer.CompactOwnedLogAsync(AnyEntry, Durable(), cancellationToken);
@@ -271,15 +273,15 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
         await WriteAsync(committer, 2, cancellationToken);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
-        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>())
-                      .Callback(async token =>
+        var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
+        _ = durability.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>())
+                      .ReturnsAsync(async token =>
                       {
                           _ = entered.TrySetResult();
                           await release.Task.WaitAsync(Bound, TimeProvider.System, token).ConfigureAwait(false);
                       });
 
-        var compaction = committer.CompactOwnedLogAsync(AnyEntry, durability.Instance(), cancellationToken);
+        var compaction = committer.CompactOwnedLogAsync(AnyEntry, durability.Object, cancellationToken);
         await entered.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         var write = committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken);
         var duringStep = await OwnedLog(registry).GetStatusAsync(cancellationToken);
@@ -307,14 +309,14 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
         using var release = new ManualResetEventSlim(false);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var publishingCalls = 0;
-        var hooks = new IFollowerLogFaultHooksCreateExpectations();
-        _ = hooks.Setups.OnFrameWritten();
-        _ = hooks.Setups.OnFramesScheduling();
-        _ = hooks.Setups.OnCommitAdvanced();
-        _ = hooks.Setups.OnBeforeMemoryApply();
-        _ = hooks.Setups.OnFlushed();
-        _ = hooks.Setups.OnMetaPublishing();
-        _ = hooks.Setups.OnSnapshotPublishing().Callback(() =>
+        var hooks = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+        _ = hooks.OnFrameWritten();
+        _ = hooks.OnFramesScheduling();
+        _ = hooks.OnCommitAdvanced();
+        _ = hooks.OnBeforeMemoryApply();
+        _ = hooks.OnFlushed();
+        _ = hooks.OnMetaPublishing();
+        _ = hooks.OnSnapshotPublishing().Callback(() =>
         {
             if (Interlocked.Increment(ref publishingCalls) != 1)
                 return;
@@ -323,7 +325,7 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
             if (!release.Wait(Bound, cancellationToken))
                 throw new TimeoutException("Snapshot preparation was not released.");
         });
-        var options = new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System, FaultHooks = hooks.Instance() };
+        var options = new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System, FaultHooks = hooks.Object };
         await using var registry = await OpenRegistryAsync(dir, options, cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
         await WriteAsync(committer, 2, cancellationToken);

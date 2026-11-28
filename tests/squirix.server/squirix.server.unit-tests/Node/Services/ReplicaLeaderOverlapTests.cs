@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
@@ -12,6 +11,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaPipelineTestKit;
 
@@ -132,17 +134,17 @@ public sealed class ReplicaLeaderOverlapTests : IsolatedStorageTestBase
     [Test]
     public async Task StaticPipelineUsesDurableAppend(CancellationToken cancellationToken)
     {
-        var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.AppendAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<CancellationToken>())
-               .ReturnValue(Task.FromResult(new FollowerLogAppendResult(true, string.Empty, 1UL, 1UL)));
+        var log = IFollowerLog.Mock(MockBehavior.Strict);
+        _ = log.AppendAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<CancellationToken>())
+               .ReturnsAsync(Task.FromResult(new FollowerLogAppendResult(true, string.Empty, 1UL, 1UL)));
         var status = default(FollowerLogStatus);
         var lagging = new ReplicaLaggingFollowers("n1", new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance);
-        var pipeline = new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log.Instance(), [], ("n1", 0), lagging, in status, 1);
+        var pipeline = new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log.Object, [], ("n1", 0), lagging, in status, 1);
         try
         {
             await pipeline.AppendLocalAsync([Mutation(1)], cancellationToken);
             _ = await Assert.That(pipeline.NextLogIndex).IsEqualTo(2UL);
-            log.Verify();
+            log.AppendAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<CancellationToken>()).WasCalled(Times.Once);
         }
         finally
         {

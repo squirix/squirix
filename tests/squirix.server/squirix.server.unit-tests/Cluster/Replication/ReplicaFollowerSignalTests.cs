@@ -32,7 +32,7 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-signal-append");
         await using var registry = await OpenAsync(dir, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
 
         var result = await follower.AppendAsync(GroupId, Fingerprint, 1, Batch(1, 0, 0), cancellationToken);
 
@@ -47,7 +47,7 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-signal-refused");
         await using var registry = await OpenAsync(dir, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
 
         var result = await follower.AppendAsync(GroupId, Fingerprint, 1, Batch(2, 1, 0), cancellationToken);
 

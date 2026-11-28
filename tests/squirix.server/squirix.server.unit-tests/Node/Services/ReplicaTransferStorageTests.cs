@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
@@ -11,6 +10,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaStateHarness;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -66,15 +68,15 @@ public sealed class ReplicaTransferStorageTests : ServerUnitTestBase
 
         internal ILogicalNamespacedCache<StoredValue> Wrap(ILogicalNamespacedCache<StoredValue> inner)
         {
-            var rock = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
-            _ = rock.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
-                .Callback(async (operation, cache, key, entry, length, token) =>
+            var rock = ILogicalNamespacedCache<StoredValue>.Mock(MockBehavior.Strict);
+            _ = rock.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+                .ReturnsAsync(async (operation, cache, key, entry, length, token) =>
                 {
                     _ = _reached.TrySetResult();
                     await _release.Task.ConfigureAwait(false);
                     await inner.SetEntryAsync(operation, cache, key, entry, length, token).ConfigureAwait(false);
                 });
-            return rock.Instance();
+            return rock.Object;
         }
     }
 }

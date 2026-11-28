@@ -4,7 +4,6 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
@@ -19,6 +18,9 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -291,20 +293,20 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
             var journal = new SnapshotCutJournal(1, 2);
             var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
             var writer = new WriterState(failure);
-            var captureExpectations = new ISnapshotEntryCaptureCreateExpectations();
-            _ = captureExpectations.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
-                                   .ReturnValue(default);
-            var writerExpectations = new ISnapshotWriterCreateExpectations();
-            _ = writerExpectations.Setups.AllocateIndex(Arg.Any<int>()).Callback(static publishedIndex => publishedIndex + 1);
-            _ = writerExpectations.Setups.WriteAsync(
+            var captureExpectations = ISnapshotEntryCapture.Mock(MockBehavior.Strict);
+            _ = captureExpectations.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+                                   .ReturnsAsync(ValueTask.CompletedTask);
+            var writerExpectations = ISnapshotWriter.Mock(MockBehavior.Strict);
+            _ = writerExpectations.AllocateIndex(Arg.Any<int>()).Returns(static publishedIndex => publishedIndex + 1);
+            _ = writerExpectations.WriteAsync(
                 Arg.Any<int>(),
                 Arg.Any<IReadOnlyList<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>>(),
                 Arg.Any<IReadOnlyList<PersistedIdempotencyRecord>>(),
-                Arg.Any<CancellationToken>()).Callback((_, _, _, _) => writer.WriteSnapshotAsync());
+                Arg.Any<CancellationToken>()).ReturnsAsync((_, _, _, _) => writer.WriteSnapshotAsync());
             var coordinator = new Coordinator(
                 options,
                 journal,
-                new CoordinatorDependencies(captureExpectations.Instance(), writerExpectations.Instance(), ledger, "test-node", NoOpSnapshotTelemetry.Instance),
+                new CoordinatorDependencies(captureExpectations.Object, writerExpectations.Object, ledger, "test-node", NoOpSnapshotTelemetry.Instance),
                 clock);
             var service = new SnapshotTriggerService(NullLogger<SnapshotTriggerService>.Instance, coordinator, journal, clock);
             return new Harness(ledger, journal, clock, service, writer);

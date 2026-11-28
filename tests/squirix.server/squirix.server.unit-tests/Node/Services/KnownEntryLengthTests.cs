@@ -6,7 +6,6 @@ using System.Diagnostics.Metrics;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -28,6 +27,9 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -55,8 +57,8 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
     {
         var clock = JournalReplayKit.CreateWriteClock(TimeSpan.Zero);
         var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1 };
-        var expectations = new ICacheEntrySizeEstimatorCreateExpectations<StoredValue>();
-        _ = expectations.Setups.EstimateBytesForEncodedLength(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<int>()).Callback(static (_, _, length) => length);
+        var expectations = ICacheEntrySizeEstimator<StoredValue>.Mock(MockBehavior.Strict);
+        _ = expectations.EstimateBytesForEncodedLength(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<int>()).Returns(static (_, _, length) => length);
         var leader = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>());
         var leaderCache = new ClientCache<StoredValue>(leader, leader);
         var factory = new ReplicaMutationFactory(leaderCache, "g1", 1UL, clock, NullLogger.Instance);
@@ -68,7 +70,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
             factory.PrepareSet("op-1", CacheName, "applied", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), 1, deadline, null, Tags()), 1UL),
             cancellationToken);
 
-        await using var chain = await Chain.OpenAsync(persistence, clock, expectations.Instance(), cancellationToken);
+        await using var chain = await Chain.OpenAsync(persistence, clock, expectations.Object, cancellationToken);
         await chain.Cache.SetEntryAsync(string.Empty, CacheName, "written", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), 1, deadline, null, Tags()), cancellationToken);
         _ = await chain.Cache.TryAddEntryAsync(string.Empty, CacheName, "added", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Replacement).Bytes)), cancellationToken);
         foreach (var record in records)
@@ -388,10 +390,10 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
 
     private static ICacheEntrySizeEstimator<string> CreateLengthEstimator()
     {
-        var estimator = new ICacheEntrySizeEstimatorCreateExpectations<string>();
-        _ = estimator.Setups.EstimateBytes(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<bool>()).ReturnValue(MeasuredBytes);
-        _ = estimator.Setups.EstimateBytesForEncodedLength(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<int>()).Callback(static (_, _, length) => length);
-        return estimator.Instance();
+        var estimator = ICacheEntrySizeEstimator<string>.Mock(MockBehavior.Strict);
+        _ = estimator.EstimateBytes(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<bool>()).Returns(MeasuredBytes);
+        _ = estimator.EstimateBytesForEncodedLength(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<int>()).Returns(static (_, _, length) => length);
+        return estimator.Object;
     }
 
     private static async Task LeaderAppliesAsync(ClientCache<StoredValue> cache, List<ReplicaLogRecord> records, PreparedReplicaMutation prepared, CancellationToken cancellationToken)

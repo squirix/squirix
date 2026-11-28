@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -21,6 +20,8 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
@@ -272,26 +273,26 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
     private static ILogicalNamespacedCache<string> CreateInner(PhysicalCache<string> physical, InnerCalls calls)
     {
         var client = new ClientCache<string>(physical, physical);
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Callback((cacheName, key, cancellationToken) =>
+        var inner = TestDoubles.CreateCacheWithEntryWriteOverloads<string>();
+        _ = inner.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).ReturnsAsync((cacheName, key, cancellationToken) =>
         {
             calls.CountGetEntry();
             return client.GetEntryAsync(cacheName, key, cancellationToken);
         });
-        _ = inner.Setups.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Callback(client.GetValueAsync);
-        _ = inner.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                 .Callback((operationId, cacheName, key, entry, cancellationToken) =>
+        _ = inner.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).ReturnsAsync(client.GetValueAsync);
+        _ = inner.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                 .ReturnsAsync((operationId, cacheName, key, entry, cancellationToken) =>
                   {
                       calls.CountSet();
                       return client.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
                   });
-        _ = inner.Setups.TryAddEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                 .Callback(client.TryAddEntryAsync);
-        _ = inner.Setups.RemoveAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Callback(client.RemoveAsync);
-        _ = inner.Setups.RemoveExpirationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Callback(client.RemoveExpirationAsync);
-        _ = inner.Setups.TouchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Callback(client.TouchAsync);
-        _ = inner.Setups.UpdateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Callback(client.UpdateAsync);
-        return inner.Instance();
+        _ = inner.TryAddEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                 .ReturnsAsync(client.TryAddEntryAsync);
+        _ = inner.RemoveAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).ReturnsAsync(client.RemoveAsync);
+        _ = inner.RemoveExpirationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).ReturnsAsync(client.RemoveExpirationAsync);
+        _ = inner.TouchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).ReturnsAsync(client.TouchAsync);
+        _ = inner.UpdateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).ReturnsAsync(client.UpdateAsync);
+        return inner.Object;
     }
 
     [Immutable]

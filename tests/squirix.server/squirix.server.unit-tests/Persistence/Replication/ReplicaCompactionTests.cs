@@ -12,6 +12,8 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -165,15 +167,15 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-compaction-committed-tail-fault");
         var armed = false;
-        var hooks = new IFollowerLogFaultHooksCreateExpectations();
-        _ = hooks.Setups.OnFrameWritten();
-        _ = hooks.Setups.OnFramesScheduling();
-        _ = hooks.Setups.OnCommitAdvanced();
-        _ = hooks.Setups.OnBeforeMemoryApply();
-        _ = hooks.Setups.OnFlushed().Callback(() => FailIfArmed(armed));
-        _ = hooks.Setups.OnMetaPublishing();
-        _ = hooks.Setups.OnSnapshotPublishing();
-        await using (var log = await SeedCommittedTailAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks.Instance() }, cancellationToken))
+        var hooks = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+        _ = hooks.OnFrameWritten();
+        _ = hooks.OnFramesScheduling();
+        _ = hooks.OnCommitAdvanced();
+        _ = hooks.OnBeforeMemoryApply();
+        _ = hooks.OnFlushed().Callback(() => FailIfArmed(armed));
+        _ = hooks.OnMetaPublishing();
+        _ = hooks.OnSnapshotPublishing();
+        await using (var log = await SeedCommittedTailAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks.Object }, cancellationToken))
         {
             armed = true;
             _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(Applied, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -205,21 +207,21 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         var now = DateTime.UtcNow;
         var armed = new int[1];
         GroupIdempotencyState? store = null;
-        var hooks = new IFollowerLogFaultHooksCreateExpectations();
-        _ = hooks.Setups.OnFrameWritten();
-        _ = hooks.Setups.OnFramesScheduling();
-        _ = hooks.Setups.OnCommitAdvanced();
-        _ = hooks.Setups.OnBeforeMemoryApply();
-        _ = hooks.Setups.OnMetaPublishing();
-        _ = hooks.Setups.OnSnapshotPublishing();
+        var hooks = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+        _ = hooks.OnFrameWritten();
+        _ = hooks.OnFramesScheduling();
+        _ = hooks.OnCommitAdvanced();
+        _ = hooks.OnBeforeMemoryApply();
+        _ = hooks.OnMetaPublishing();
+        _ = hooks.OnSnapshotPublishing();
 
         // The first flush once armed publishes the snapshot: the outcome recorded there lands between the snapshot and the log rewrite.
-        _ = hooks.Setups.OnFlushed().Callback(() =>
+        _ = hooks.OnFlushed().Callback(() =>
         {
             if (Interlocked.Exchange(ref armed[0], 0) == 1)
                 store?.RecordCommittedOutcome(CommittedOutcome("applied-3", Applied + 1, now));
         });
-        await using var log = await SeedCommittedTailAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, IdempotencyCapacity = 1, FaultHooks = hooks.Instance() }, cancellationToken);
+        await using var log = await SeedCommittedTailAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, IdempotencyCapacity = 1, FaultHooks = hooks.Object }, cancellationToken);
         store = log.Idempotency;
         store.MarkOutcomesRebuilt();
         store.RecordCommittedOutcome(CommittedOutcome("applied-1", 1UL, now));

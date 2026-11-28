@@ -442,7 +442,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         {
             _loggerFactory = new FixedLoggerFactory(logger);
             EventLoop = new JournalEventLoop(
-                RocksDoubles.CreateEventLoopHost().Host,
+                TestDoubles.CreateEventLoopHost().Host,
                 _ring,
                 writer,
                 options,

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -13,6 +12,9 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Utils;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -158,7 +160,7 @@ internal static class LedGroupsTestKit
     /// <param name="committer">The committer of the own group.</param>
     /// <returns>The committers of the led groups, on the clock of <paramref name="committer" />.</returns>
     internal static ReplicaGroupCommitters LeadOwn(ReplicaGroupCommitter committer) =>
-        new([committer], committer.GroupId, new INodeLocatorCreateExpectations().Instance(), committer.Clock);
+        new([committer], committer.GroupId, INodeLocator.Mock(MockBehavior.Strict).Object, committer.Clock);
 
     /// <summary>Creates the committers of node n1 leading groups n1 and n2, each with its own follower transport.</summary>
     /// <param name="registry">The registry of node n1.</param>
@@ -184,14 +186,14 @@ internal static class LedGroupsTestKit
     /// <returns>The lookup.</returns>
     internal static INodeLocator Owners()
     {
-        var owners = new INodeLocatorCreateExpectations();
-        _ = owners.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Callback(static (_, key) => key switch
+        var owners = INodeLocator.Mock(MockBehavior.Strict);
+        _ = owners.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns(static (_, key) => key switch
         {
             "a" => "n1",
             "b" => "n2",
             _ => "n3",
         });
-        return owners.Instance();
+        return owners.Object;
     }
 
     /// <summary>Places the owner of a group in slot 0 and the next nodes of n1, n2, n3 after it, wrapping around.</summary>

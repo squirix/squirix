@@ -12,6 +12,8 @@ using Squirix.Server.TestKit.Replication;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.IntegrationTests.Persistence.Replication;
 
@@ -97,13 +99,13 @@ public sealed class FollowerStorageRestartTests
     private static IFollowerLogFaultHooks CreateCommitAdvanceFaults()
     {
         var fired = false;
-        var expectations = new IFollowerLogFaultHooksCreateExpectations();
-        _ = expectations.Setups.OnFrameWritten();
-        _ = expectations.Setups.OnFramesScheduling();
-        _ = expectations.Setups.OnFlushed();
-        _ = expectations.Setups.OnMetaPublishing();
-        _ = expectations.Setups.OnSnapshotPublishing();
-        _ = expectations.Setups.OnCommitAdvanced().Callback(() =>
+        var expectations = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+        _ = expectations.OnFrameWritten();
+        _ = expectations.OnFramesScheduling();
+        _ = expectations.OnFlushed();
+        _ = expectations.OnMetaPublishing();
+        _ = expectations.OnSnapshotPublishing();
+        _ = expectations.OnCommitAdvanced().Callback(() =>
         {
             if (fired)
                 return;
@@ -111,7 +113,7 @@ public sealed class FollowerStorageRestartTests
             fired = true;
             throw new IOException("simulated crash during commit advance.");
         });
-        return expectations.Instance();
+        return expectations.Object;
     }
 
     private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);

@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.TestKit;
@@ -10,6 +10,9 @@ using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.UnitTests.Internal;
 
@@ -21,7 +24,7 @@ public sealed class BinaryValueTests
     [Test]
     public async Task BinaryReadsOwnBuffersWithoutSerializer()
     {
-        var serializer = new ISquirixSerializerCreateExpectations().Instance();
+        var serializer = ISquirixSerializer.Mock(MockBehavior.Strict).Object;
         var wire = new CacheValue { BinaryValue = new byte[] { 0, 255, 128, 34, 0 } };
         var typed = WireMapping.Read<byte[]>(wire, serializer)!;
         var untyped = (await Assert.That(WireMapping.Read<object>(wire, serializer)).IsTypeOf<byte[]>())!;
@@ -41,7 +44,7 @@ public sealed class BinaryValueTests
     [Arguments(false)]
     public async Task NativeBinaryReadTransfersDecodedArray(bool typed)
     {
-        var serializer = new ISquirixSerializerCreateExpectations().Instance();
+        var serializer = ISquirixSerializer.Mock(MockBehavior.Strict).Object;
         byte[] frame = [31, 19, 42];
         var wire = GetValueAsyncResponse.Parser.ParseFrom(frame).Value!;
         _ = await Assert.That(MemoryMarshal.TryGetArray(wire.BinaryValue, out var original)).IsTrue();
@@ -57,7 +60,7 @@ public sealed class BinaryValueTests
     [Test]
     public async Task BorrowedBinaryReadCopiesOnEachMapping()
     {
-        var serializer = new ISquirixSerializerCreateExpectations().Instance();
+        var serializer = ISquirixSerializer.Mock(MockBehavior.Strict).Object;
         byte[] frame = [31, 42];
         var wire = GetValueAsyncResponse.Parser.ParseBorrowed(frame).Value!;
         var first = WireMapping.Read<byte[]>(wire, serializer)!;
@@ -70,7 +73,7 @@ public sealed class BinaryValueTests
     [Test]
     public async Task EmptyBinaryIsNotNull()
     {
-        var serializer = new ISquirixSerializerCreateExpectations().Instance();
+        var serializer = ISquirixSerializer.Mock(MockBehavior.Strict).Object;
         var wire = new CacheValue { BinaryValue = ReadOnlyMemory<byte>.Empty };
         var result = WireMapping.Read<byte[]>(wire, serializer);
         _ = await Assert.That(wire.KindCase).IsEqualTo(CacheValue.KindOneofCase.BinaryValue);
@@ -82,7 +85,7 @@ public sealed class BinaryValueTests
     [Test]
     public async Task BinaryTypeMismatchIsProtocolFailure()
     {
-        var serializer = new ISquirixSerializerCreateExpectations().Instance();
+        var serializer = ISquirixSerializer.Mock(MockBehavior.Strict).Object;
         var failure = ExceptionAssert.For<SquirixTransportException>().Throws(
             serializer,
             static value => _ = WireMapping.Read<string>(new CacheValue { BinaryValue = ReadOnlyMemory<byte>.Empty }, value));
@@ -94,9 +97,9 @@ public sealed class BinaryValueTests
     public async Task TypedWriterKeepsConfiguredSerializer()
     {
         byte[] serialized = [34, 99, 117, 115, 116, 111, 109, 34];
-        var expectations = new ISquirixSerializerCreateExpectations();
-        _ = expectations.Setups.SerializeToUtf8Bytes(Arg.Any<byte[]?>()).ReturnValue(serialized);
-        var wire = WireMapping.CreateWireEntry<byte[]>([0, 255], expectations.Instance());
+        var expectations = ISquirixSerializer.Mock(MockBehavior.Strict);
+        _ = expectations.SerializeToUtf8Bytes<byte[]>(Arg.Any<byte[]?>(), default(JsonTypeInfo<byte[]>?)).Returns(serialized);
+        var wire = WireMapping.CreateWireEntry<byte[]>([0, 255], expectations.Object);
         _ = await Assert.That(wire.Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.JsonUtf8);
         _ = await Assert.That(wire.Value.JsonUtf8.Span.SequenceEqual(serialized)).IsTrue();
     }

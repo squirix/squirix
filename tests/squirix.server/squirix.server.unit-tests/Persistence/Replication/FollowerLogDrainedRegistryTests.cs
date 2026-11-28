@@ -12,6 +12,8 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -105,11 +107,11 @@ public sealed class FollowerLogDrainedRegistryTests : IsolatedStorageTestBase
     [Test]
     public async Task HookDisposalBeforeSchedulingStaysPlain(CancellationToken cancellationToken)
     {
-        var faults = new IFollowerLogFaultHooksCreateExpectations();
-        _ = faults.Setups.OnFramesScheduling().Callback(static () => throw new ObjectDisposedException("hook"));
-        _ = faults.Setups.OnMetaPublishing();
+        var faults = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+        _ = faults.OnFramesScheduling().Callback(static () => throw new ObjectDisposedException("hook"));
+        _ = faults.OnMetaPublishing();
         await using var log = await OpenLogAsync(
-            new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System, FaultHooks = faults.Instance() },
+            new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System, FaultHooks = faults.Object },
             new EventRecordingLogger(),
             cancellationToken);
 

@@ -2,7 +2,6 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
@@ -14,6 +13,9 @@ using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
@@ -46,7 +48,7 @@ public sealed class OwnershipGuardCacheDecoratorTests
     [Test]
     public async Task RemoteKeyIsRefusedBeforeTheInnerCache(CancellationToken cancellationToken)
     {
-        var guard = CreateGuard(Remote, new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
+        var guard = CreateGuard(Remote, ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict).Object);
 
         for (var operation = 0; operation < OperationCount; operation++)
         {
@@ -63,7 +65,7 @@ public sealed class OwnershipGuardCacheDecoratorTests
     [Test]
     public async Task StaticTableAddsNoLeaderHint(CancellationToken cancellationToken)
     {
-        var guard = CreateGuard(Remote, new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
+        var guard = CreateGuard(Remote, ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict).Object);
 
         var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(StartAsync(guard, 4), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
@@ -75,7 +77,7 @@ public sealed class OwnershipGuardCacheDecoratorTests
     [Test]
     public async Task DeposedLeaderRefusesStaleTerm(CancellationToken cancellationToken)
     {
-        var guard = CreateElectedGuard(new GroupLeaderView(true, false, true, 2, 3, default), new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
+        var guard = CreateElectedGuard(new GroupLeaderView(true, false, true, 2, 3, default), ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict).Object);
 
         for (var operation = 0; operation < OperationCount; operation++)
         {
@@ -92,7 +94,7 @@ public sealed class OwnershipGuardCacheDecoratorTests
     [Test]
     public async Task FollowerRefusesWithLeaderHint(CancellationToken cancellationToken)
     {
-        var guard = CreateElectedGuard(new GroupLeaderView(true, false, false, 4, 4, new LeaderRoute(Remote, 4)), new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
+        var guard = CreateElectedGuard(new GroupLeaderView(true, false, false, 4, 4, new LeaderRoute(Remote, 4)), ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict).Object);
 
         var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(StartAsync(guard, 0), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
@@ -107,7 +109,7 @@ public sealed class OwnershipGuardCacheDecoratorTests
     [Test]
     public async Task PromotionPendingIsUnavailable(CancellationToken cancellationToken)
     {
-        var guard = CreateElectedGuard(new GroupLeaderView(true, false, true, 2, 2, default), new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
+        var guard = CreateElectedGuard(new GroupLeaderView(true, false, true, 2, 2, default), ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict).Object);
 
         var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(StartAsync(guard, 2), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
@@ -119,7 +121,7 @@ public sealed class OwnershipGuardCacheDecoratorTests
     [Test]
     public async Task UnservedGroupNamesRingOwner(CancellationToken cancellationToken)
     {
-        var guard = CreateElectedGuard(default, new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
+        var guard = CreateElectedGuard(default, ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict).Object);
 
         var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(StartAsync(guard, 0), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
@@ -155,78 +157,78 @@ public sealed class OwnershipGuardCacheDecoratorTests
 
     private static ILogicalNamespacedCache<string> CreateCountingInner(StrongBox<int> calls)
     {
-        var expectations = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = expectations.Setups.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                        .Callback((_, _, _) =>
+        var expectations = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = expectations.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync((_, _, _) =>
                          {
                              calls.Value++;
                              return ValueTask.FromResult<NodeCacheEntry<string>?>(null);
                          });
-        _ = expectations.Setups.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                        .Callback((_, _, _) =>
+        _ = expectations.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync((_, _, _) =>
                          {
                              calls.Value++;
                              return ValueTask.FromResult(new NodeCacheValueResult<string>(false, null));
                          });
-        _ = expectations.Setups.RemoveAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                        .Callback((_, _, _, _) =>
+        _ = expectations.RemoveAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync((_, _, _, _) =>
                          {
                              calls.Value++;
                              return ValueTask.FromResult(false);
                          });
-        _ = expectations.Setups.RemoveExpirationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                        .Callback((_, _, _, _) =>
+        _ = expectations.RemoveExpirationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync((_, _, _, _) =>
                          {
                              calls.Value++;
                              return ValueTask.FromResult(false);
                          });
-        _ = expectations.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                        .Callback((_, _, _, _, _) =>
+        _ = expectations.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync((_, _, _, _, _) =>
                          {
                              calls.Value++;
                              return ValueTask.CompletedTask;
                          });
-        _ = expectations.Setups.TouchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
-                        .Callback((_, _, _, _, _) =>
+        _ = expectations.TouchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync((_, _, _, _, _) =>
                          {
                              calls.Value++;
                              return ValueTask.FromResult(false);
                          });
-        _ = expectations.Setups.TryAddEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                        .Callback((_, _, _, _, _) =>
+        _ = expectations.TryAddEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync((_, _, _, _, _) =>
                          {
                              calls.Value++;
                              return ValueTask.FromResult(false);
                          });
-        _ = expectations.Setups.AddOrGetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                        .Callback((_, _, _, _, _) =>
+        _ = expectations.AddOrGetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync((_, _, _, _, _) =>
                          {
                              calls.Value++;
                              return ValueTask.FromResult(default(NodeCacheAddOrGetResult<string>));
                          });
-        _ = expectations.Setups.UpdateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
-                        .Callback((_, _, _, _, _) =>
+        _ = expectations.UpdateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync((_, _, _, _, _) =>
                          {
                              calls.Value++;
                              return ValueTask.FromResult(false);
                          });
-        return expectations.Instance();
+        return expectations.Object;
     }
 
     private static OwnershipGuardCacheDecorator<string> CreateGuard(string owner, ILogicalNamespacedCache<string> inner)
     {
-        var locator = new INodeLocatorCreateExpectations();
-        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(owner);
-        return new OwnershipGuardCacheDecorator<string>(Self, locator.Instance(), new StaticLeaderTable(Self), false, inner);
+        var locator = INodeLocator.Mock(MockBehavior.Strict);
+        _ = locator.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns(owner);
+        return new OwnershipGuardCacheDecorator<string>(Self, locator.Object, new StaticLeaderTable(Self), false, inner);
     }
 
     private static OwnershipGuardCacheDecorator<string> CreateElectedGuard(in GroupLeaderView view, ILogicalNamespacedCache<string> inner)
     {
-        var locator = new INodeLocatorCreateExpectations();
-        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(Remote);
-        var leaders = new IGroupLeaderTableCreateExpectations();
-        _ = leaders.Setups.Read(Remote).ReturnValue(view);
-        return new OwnershipGuardCacheDecorator<string>(Self, locator.Instance(), leaders.Instance(), true, inner);
+        var locator = INodeLocator.Mock(MockBehavior.Strict);
+        _ = locator.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns(Remote);
+        var leaders = IGroupLeaderTable.Mock(MockBehavior.Strict);
+        _ = leaders.Read(Remote).Returns(view);
+        return new OwnershipGuardCacheDecorator<string>(Self, locator.Object, leaders.Object, true, inner);
     }
 
     private static Task StartAsync(OwnershipGuardCacheDecorator<string> guard, int operation) => Operations[operation](guard);

@@ -4,7 +4,6 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -20,6 +19,9 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -415,9 +417,9 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
         for (var i = 0; i < keys; i++)
             cache.Set(new CacheKey(CacheName, $"key-{i}"), new NodeCacheEntry<StoredValue>(StoredValue.FromText($"v{i}")), cancellationToken);
 
-        var locator = new INodeLocatorCreateExpectations();
-        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(GroupId);
-        return (cache, new ReplicaGroupEntries(cache, locator.Instance()), clock);
+        var locator = INodeLocator.Mock(MockBehavior.Strict);
+        _ = locator.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns(GroupId);
+        return (cache, new ReplicaGroupEntries(cache, locator.Object), clock);
     }
 
     private static GroupSnapshot Snapshot() => new(

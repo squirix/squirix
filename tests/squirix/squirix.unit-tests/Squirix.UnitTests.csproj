@@ -5,6 +5,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="TUnit.Mocks" PrivateAssets="all"/>
         <Compile Include="..\..\shared\GoldenSnapshotAssert.cs" Link="Shared\GoldenSnapshotAssert.cs"/>
         <PackageReference Include="JetBrains.Annotations"/>
     </ItemGroup>

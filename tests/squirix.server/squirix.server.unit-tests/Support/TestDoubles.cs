@@ -1,33 +1,62 @@
 using System;
 using System.Threading;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Core;
 using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Utils;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Support;
 
-/// <summary>Rocks-backed factories for trivial shared test doubles (no delegate allocations).</summary>
-internal static class RocksDoubles
+/// <summary>Factories for shared test doubles.</summary>
+internal static class TestDoubles
 {
     /// <summary>Creates an <see cref="IMemoryBudgetProvider" /> mock with a fixed available-byte value.</summary>
     /// <param name="availableBytes">Fixed the available memory budget in bytes.</param>
     internal static IMemoryBudgetProvider CreateMemoryBudget(long availableBytes)
     {
-        var expectations = new IMemoryBudgetProviderCreateExpectations();
-        _ = expectations.Setups.GetTotalAvailableBytes().ReturnValue(availableBytes);
-        return expectations.Instance();
+        var expectations = IMemoryBudgetProvider.Mock(MockBehavior.Strict);
+        _ = expectations.GetTotalAvailableBytes().Returns(availableBytes);
+        return expectations.Object;
     }
 
     /// <summary>Creates an <see cref="IReplicaMembership" /> mock that counts every node a member of every group.</summary>
     /// <returns>The membership.</returns>
     internal static IReplicaMembership CreateReplicaMembers()
     {
-        var expectations = new IReplicaMembershipCreateExpectations();
-        _ = expectations.Setups.IsMember(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(true);
-        return expectations.Instance();
+        var expectations = IReplicaMembership.Mock(MockBehavior.Strict);
+        _ = expectations.IsMember(Arg.Any<string>(), Arg.Any<string>()).Returns(true);
+        return expectations.Object;
+    }
+
+    /// <summary>Creates a cache mock whose encoded-length writes dispatch to the corresponding configured writes.</summary>
+    /// <typeparam name="T">The cache value type.</typeparam>
+    /// <returns>The strict cache mock.</returns>
+    internal static Mock<ILogicalNamespacedCache<T>> CreateCacheWithEntryWriteOverloads<T>()
+    {
+        var cache = ILogicalNamespacedCache<T>.Mock(MockBehavior.Strict);
+        _ = cache.SetEntryAsync(
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<NodeCacheEntry<T>>(),
+            Arg.Any<int?>(),
+            Arg.Any<CancellationToken>()).ReturnsAsync(
+            (operationId, cacheName, key, entry, _, token) => cache.Object.SetEntryAsync(operationId, cacheName, key, entry, token));
+        _ = cache.TryAddEntryAsync(
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<NodeCacheEntry<T>>(),
+            Arg.Any<int?>(),
+            Arg.Any<CancellationToken>()).ReturnsAsync(
+            (operationId, cacheName, key, entry, _, token) => cache.Object.TryAddEntryAsync(operationId, cacheName, key, entry, token));
+        return cache;
     }
 
     /// <summary>Creates a journal event loop host over a fresh pending-append registry, and the state its callbacks record.</summary>
@@ -37,17 +66,17 @@ internal static class RocksDoubles
     internal static EventLoopHostDouble CreateEventLoopHost(MutableInt32? queuedAppends = null, Action? checkFailure = null)
     {
         var state = new EventLoopHostState { QueuedAppends = queuedAppends };
-        var expectations = new IJournalEventLoopHostCreateExpectations();
-        _ = expectations.Setups.PendingAppends.Gets().ReturnValue(state.PendingAppends);
-        _ = expectations.Setups.CompleteDurabilityCheckpoint(Arg.Any<JournalWorkItem>())
+        var expectations = IJournalEventLoopHost.Mock(MockBehavior.Strict);
+        _ = expectations.PendingAppends.Returns(state.PendingAppends);
+        _ = expectations.CompleteDurabilityCheckpoint(Arg.Any<JournalWorkItem>())
                         .Callback(static item => _ = item.Ack?.TrySetResult());
-        _ = expectations.Setups.DecrementQueuedAppends().Callback(state.DecrementQueuedAppends);
-        _ = expectations.Setups.FailPipeline(Arg.Any<Exception>()).Callback(state.RecordPipelineFailure);
-        _ = expectations.Setups.PublishRoll(Arg.Any<int>()).Callback(_ => state.RecordRollPublished());
+        _ = expectations.DecrementQueuedAppends().Callback(state.DecrementQueuedAppends);
+        _ = expectations.FailPipeline(Arg.Any<Exception>()).Callback(state.RecordPipelineFailure);
+        _ = expectations.PublishRoll(Arg.Any<int>()).Callback(_ => state.RecordRollPublished());
         if (checkFailure != null)
-            _ = expectations.Setups.ThrowIfJournalThreadFailed().Callback(checkFailure);
+            _ = expectations.ThrowIfJournalThreadFailed().Callback(checkFailure);
 
-        return new EventLoopHostDouble(expectations.Instance(), state);
+        return new EventLoopHostDouble(expectations.Object, state);
     }
 
     /// <summary>A journal event loop host and the state its recorded callbacks left behind.</summary>

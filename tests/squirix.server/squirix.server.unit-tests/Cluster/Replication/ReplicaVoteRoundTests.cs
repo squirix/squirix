@@ -3,16 +3,19 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Testing;
 using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -291,12 +294,12 @@ public sealed class ReplicaVoteRoundTests
 
         internal ScriptedVoters()
         {
-            var expectations = new IReplicaVoteGatewayCreateExpectations();
-            _ = expectations.Setups.PreVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
-                            .Callback((nodeId, _, _, _, cancellationToken) => AskAsync(nodeId, cancellationToken));
-            _ = expectations.Setups.RequestVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
-                            .Callback((nodeId, _, _, _, cancellationToken) => AskAsync(nodeId, cancellationToken));
-            Gateway = expectations.Instance();
+            var expectations = IReplicaVoteGateway.Mock(MockBehavior.Strict);
+            _ = expectations.PreVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
+                            .ReturnsAsync((nodeId, _, _, _, cancellationToken) => AskAsync(nodeId, cancellationToken));
+            _ = expectations.RequestVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
+                            .ReturnsAsync((nodeId, _, _, _, cancellationToken) => AskAsync(nodeId, cancellationToken));
+            Gateway = new ReplicaVoteGatewayWithDefaults(expectations.Object);
         }
 
         internal IReplicaVoteGateway Gateway { get; }

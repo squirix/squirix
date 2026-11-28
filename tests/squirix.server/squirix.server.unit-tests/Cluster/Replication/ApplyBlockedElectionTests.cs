@@ -126,7 +126,7 @@ public sealed class ApplyBlockedElectionTests : ServerUnitTestBase
         state.ApplyBlock.Block();
         time.Advance(Options.ElectionTimeout);
         var denied = await election.StepAsync(cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
 
         var preVote = await follower.PreVoteAsync("n2", Fingerprint, 1UL, new ElectionVoteRequest("n3", 8UL, 0UL, 0UL), cancellationToken);
         var vote = await follower.RequestVoteAsync("n2", Fingerprint, 1UL, new ElectionVoteRequest("n3", 8UL, 0UL, 0UL), cancellationToken);

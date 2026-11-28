@@ -3,7 +3,6 @@ using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -24,6 +23,8 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
@@ -225,22 +226,22 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
 
     private static ILogicalNamespacedCache<string> CreateDelayingInner(ClientCache<string> real, FakeTimeProvider clock)
     {
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Callback(real.GetValueAsync);
-        _ = inner.Setups.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Callback(real.GetEntryAsync);
-        _ = inner.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                 .Callback((operationId, cacheName, key, entry, token) =>
+        var inner = TestDoubles.CreateCacheWithEntryWriteOverloads<string>();
+        _ = inner.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).ReturnsAsync(real.GetValueAsync);
+        _ = inner.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).ReturnsAsync(real.GetEntryAsync);
+        _ = inner.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                 .ReturnsAsync((operationId, cacheName, key, entry, token) =>
                   {
                       clock.Advance(ApplyDelay);
                       return real.SetEntryAsync(operationId, cacheName, key, entry, token);
                   });
-        _ = inner.Setups.TryAddEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                 .Callback((operationId, cacheName, key, entry, token) =>
+        _ = inner.TryAddEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                 .ReturnsAsync((operationId, cacheName, key, entry, token) =>
                   {
                       clock.Advance(ApplyDelay);
                       return real.TryAddEntryAsync(operationId, cacheName, key, entry, token);
                   });
-        return inner.Instance();
+        return inner.Object;
     }
 
     private static NodeCacheEntry<string> CreateRelativeEntry() => new("v", expiration: Ttl);

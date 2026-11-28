@@ -12,6 +12,8 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -266,13 +268,13 @@ public sealed class GroupMetadataStoreTests : ServerUnitTestBase
         var path = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir, GroupId));
         var armed = false;
-        var faults = new IFollowerLogFaultHooksCreateExpectations();
-        _ = faults.Setups.OnMetaPublishing().Callback(() =>
+        var faults = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+        _ = faults.OnMetaPublishing().Callback(() =>
         {
             if (armed)
                 throw new IOException("simulated failure at the metadata publish.");
         });
-        using var store = new GroupMetadataStore(path, GroupStoragePaths.GetMetadataTempPath(dir, GroupId), GroupId, faults.Instance(), NullLogger.Instance);
+        using var store = new GroupMetadataStore(path, GroupStoragePaths.GetMetadataTempPath(dir, GroupId), GroupId, faults.Object, NullLogger.Instance);
         store.Publish(Meta(1UL));
         var before = await GroupMetadataFile.ReadBytesAsync(path, cancellationToken);
         armed = true;
@@ -294,13 +296,13 @@ public sealed class GroupMetadataStoreTests : ServerUnitTestBase
         var path = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir, GroupId));
         var armed = true;
-        var faults = new IFollowerLogFaultHooksCreateExpectations();
-        _ = faults.Setups.OnMetaPublishing().Callback(() =>
+        var faults = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+        _ = faults.OnMetaPublishing().Callback(() =>
         {
             if (armed)
                 throw new IOException("simulated failure at the metadata creation.");
         });
-        using var store = new GroupMetadataStore(path, GroupStoragePaths.GetMetadataTempPath(dir, GroupId), GroupId, faults.Instance(), NullLogger.Instance);
+        using var store = new GroupMetadataStore(path, GroupStoragePaths.GetMetadataTempPath(dir, GroupId), GroupId, faults.Object, NullLogger.Instance);
 
         _ = NodeExceptionAssert.For<IOException>().Throws(store, Meta(1UL), static (target, record) => target.Publish(in record));
         _ = await Assert.That(File.Exists(path)).IsFalse();

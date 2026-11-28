@@ -14,6 +14,7 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -38,7 +39,7 @@ public sealed class ReplicaGroupBootstrapServiceTests : ServerUnitTestBase
     private static readonly string[] Members = ["n1", "n2", "n3"];
 
     /// <summary>The committers of a node that leads no group, which the service has nothing to wake in.</summary>
-    private static readonly ReplicaGroupCommitters NoLedGroups = new([], Group, new INodeLocatorCreateExpectations().Instance(), TimeProvider.System);
+    private static readonly ReplicaGroupCommitters NoLedGroups = new([], Group, INodeLocator.Mock(MockBehavior.Strict).Object, TimeProvider.System);
 
     /// <summary>The service ends normally once the copy is complete, after logging the start once.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
@@ -9,6 +8,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Cluster.Replication.ReplicaSenderTestKit;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
@@ -40,17 +42,17 @@ public sealed class ReplicaEntryCatchUpCorruptTests : ServerUnitTestBase
     private static async Task AssertCorruptAsync(FollowerLogEntry entry, CancellationToken cancellationToken)
     {
         var status = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 3, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete);
-        var expectations = new IFollowerLogCreateExpectations();
-        _ = expectations.Setups.GetStatusAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(status));
-        _ = expectations.Setups.ReadEntriesAsync(Arg.Any<ulong>(), Arg.Any<int>(), Arg.Any<CancellationToken>(), Arg.Any<long>())
-                        .ReturnValue(Task.FromResult(new FollowerLogEntriesRead(true, 0, 0, 3, 0, [entry])));
+        var expectations = IFollowerLog.Mock(MockBehavior.Strict);
+        _ = expectations.GetStatusAsync(Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(status));
+        _ = expectations.ReadEntriesAsync(Arg.Any<ulong>(), Arg.Any<int>(), Arg.Any<CancellationToken>(), Arg.Any<long>())
+                        .ReturnsAsync(Task.FromResult(new FollowerLogEntriesRead(true, 0, 0, 3, 0, [entry])));
         var gateway = new ParkingFollowerGateway();
         var sender = CreateSender(gateway);
         try
         {
             using var lease = await sender.BeginCatchUpAsync(cancellationToken);
 
-            var result = await new ReplicaEntryCatchUpSession(expectations.Instance(), "n1", 1).RunAsync(lease, cancellationToken);
+            var result = await new ReplicaEntryCatchUpSession(expectations.Object, "n1", 1).RunAsync(lease, cancellationToken);
 
             _ = await Assert.That(result).IsEqualTo(new ReplicaCatchUpResult(ReplicaCatchUpOutcome.Corrupt, 0, 0, 0, 0, 0));
             _ = await Assert.That(gateway.CallCount).IsEqualTo(0);

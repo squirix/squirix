@@ -3,7 +3,6 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
@@ -17,6 +16,9 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.LedGroupsTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
@@ -46,16 +48,16 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         _ = await ReplicaOutcomeRecovery.RestoreAsync(log, TimeProvider.System, cancellationToken);
         await appliers.For("n2").CatchUpAsync(log, 0UL, 3UL, cancellationToken);
         var barriers = new int[1];
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
-        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>())
-                      .Callback(token =>
+        var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
+        _ = durability.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>())
+                      .ReturnsAsync(token =>
                       {
                           _ = Interlocked.Increment(ref barriers[0]);
                           return token.IsCancellationRequested ? ValueTask.FromCanceled(token) : ValueTask.CompletedTask;
                       });
         using var service = new ReplicaLogCompactionService(
             LeadOwn(committer),
-            durability.Instance(),
+            durability.Object,
             (new ReplicaLogCompactionOptions(), new ReplicaLogCompactionPolicy(long.MaxValue, int.MaxValue)),
             metrics,
             (appliers, registry),
@@ -83,11 +85,11 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
         using var meter = new Meter("test");
         var metrics = new ReplicationMetrics(meter);
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
-        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
+        _ = durability.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
         using var service = new ReplicaLogCompactionService(
             LeadOwn(committer),
-            durability.Instance(),
+            durability.Object,
             (new ReplicaLogCompactionOptions(), new ReplicaLogCompactionPolicy(long.MaxValue, int.MaxValue)),
             metrics,
             (new ReplicaGroupAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaGroupAppliers>.Instance, metrics), registry),
@@ -123,11 +125,11 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         var log = await SeedAsync(registry, "n2", 4, 3UL, cancellationToken);
         _ = await ReplicaOutcomeRecovery.RestoreAsync(log, TimeProvider.System, cancellationToken);
         await appliers.For("n2").CatchUpAsync(log, 0UL, 3UL, cancellationToken);
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
-        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
+        _ = durability.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
         using var service = new ReplicaLogCompactionService(
             LeadOwn(committer),
-            durability.Instance(),
+            durability.Object,
             (new ReplicaLogCompactionOptions(), new ReplicaLogCompactionPolicy(long.MaxValue, 2)),
             metrics,
             (appliers, registry),
@@ -156,12 +158,12 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         await using var committer = CreateCommitter(registry, gateway);
         using var meter = new Meter("test");
         var metrics = new ReplicationMetrics(meter);
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
-        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
+        _ = durability.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
         var events = new EventRecordingLogger();
         using var service = new ReplicaLogCompactionService(
             LeadOwn(committer),
-            durability.Instance(),
+            durability.Object,
             (new ReplicaLogCompactionOptions(), new ReplicaLogCompactionPolicy(long.MaxValue, 1, 0L)),
             metrics,
             (new ReplicaGroupAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaGroupAppliers>.Instance, metrics), registry),
@@ -196,11 +198,11 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         await using var committer = CreateWaitBoundCommitter(registry, "n1", new ScriptedGateway(), cache, TimeSpan.FromMilliseconds(200));
         using var meter = new Meter("test");
         var metrics = new ReplicationMetrics(meter);
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
-        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
+        _ = durability.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
         using var service = new ReplicaLogCompactionService(
             LeadOwn(committer),
-            durability.Instance(),
+            durability.Object,
             (new ReplicaLogCompactionOptions(), new ReplicaLogCompactionPolicy(long.MaxValue, 1)),
             metrics,
             (new ReplicaGroupAppliers(registry, cache, "n1", NullLogger<ReplicaGroupAppliers>.Instance, metrics), registry),
@@ -235,13 +237,13 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         await using var committer = CreateWaitBoundCommitter(registry, "n1", new ScriptedGateway(), new StubCache(), TimeSpan.FromMilliseconds(50));
         await committer.CommitSetAsync(NewOperationId(), "cache", "a", Entry("a"), cancellationToken);
         await committer.CommitSetAsync(NewOperationId(), "cache", "b", Entry("b"), cancellationToken);
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
+        var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
 
         // The barrier ends only after the wait budget elapsed, and observes the token it was given: a budget-bound token cancels it.
-        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>())
-                      .Callback(static token => new ValueTask(Task.Delay(TimeSpan.FromMilliseconds(200), TimeProvider.System, token)));
+        _ = durability.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>())
+                      .ReturnsAsync(static token => new ValueTask(Task.Delay(TimeSpan.FromMilliseconds(200), TimeProvider.System, token)));
 
-        var outcome = await committer.CompactOwnedLogAsync(new ReplicaLogCompactionPolicy(long.MaxValue, 1), durability.Instance(), cancellationToken);
+        var outcome = await committer.CompactOwnedLogAsync(new ReplicaLogCompactionPolicy(long.MaxValue, 1), durability.Object, cancellationToken);
 
         var log = OwnedLogOf(registry);
         _ = await Assert.That((outcome, (await log.GetStatusAsync(cancellationToken)).Readiness)).IsEqualTo((ReplicaLogCompactionOutcome.Compacted, FollowerLogReadiness.Ready));
@@ -262,11 +264,11 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         var log = await SeedAsync(registry, "n2", 4, 3UL, cancellationToken);
         _ = await ReplicaOutcomeRecovery.RestoreAsync(log, TimeProvider.System, cancellationToken);
         await appliers.For("n2").CatchUpAsync(log, 0UL, 3UL, cancellationToken);
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
-        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
+        _ = durability.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
         using var service = new ReplicaLogCompactionService(
             LeadOwn(committer),
-            durability.Instance(),
+            durability.Object,
             (new ReplicaLogCompactionOptions(), new ReplicaLogCompactionPolicy(long.MaxValue, 2)),
             metrics,
             (appliers, registry),
@@ -318,14 +320,14 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var armed = 0;
         var bound = TimeSpan.FromSeconds(30);
-        var hooks = new IFollowerLogFaultHooksCreateExpectations();
-        _ = hooks.Setups.OnFrameWritten();
-        _ = hooks.Setups.OnFramesScheduling();
-        _ = hooks.Setups.OnCommitAdvanced();
-        _ = hooks.Setups.OnBeforeMemoryApply();
-        _ = hooks.Setups.OnFlushed();
-        _ = hooks.Setups.OnMetaPublishing();
-        _ = hooks.Setups.OnSnapshotPublishing().Callback(() =>
+        var hooks = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+        _ = hooks.OnFrameWritten();
+        _ = hooks.OnFramesScheduling();
+        _ = hooks.OnCommitAdvanced();
+        _ = hooks.OnBeforeMemoryApply();
+        _ = hooks.OnFlushed();
+        _ = hooks.OnMetaPublishing();
+        _ = hooks.OnSnapshotPublishing().Callback(() =>
         {
             if (Interlocked.Exchange(ref armed, 0) == 0)
                 return;
@@ -334,7 +336,7 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
             if (!release.Wait(bound, cancellationToken))
                 throw new TimeoutException("Follower snapshot preparation was not released.");
         });
-        var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks.Instance() };
+        var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks.Object };
         await using var registry = await OpenRegistryAsync(dir, ["n1", "n2", "n3"], options, cancellationToken);
         var log = await SeedFollowerCompactionAsync(registry, cancellationToken);
         Volatile.Write(ref armed, 1);
@@ -399,13 +401,13 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         var log = await SeedAsync(registry, "n2", 3, 3UL, cancellationToken);
         _ = await ReplicaOutcomeRecovery.RestoreAsync(log, TimeProvider.System, cancellationToken);
         var failing = new[] { true };
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
-        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>())
-                      .Callback(_ => Volatile.Read(ref failing[0]) ? ValueTask.FromException(new IOException("journal unavailable")) : ValueTask.CompletedTask);
+        var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
+        _ = durability.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>())
+                      .ReturnsAsync(_ => Volatile.Read(ref failing[0]) ? ValueTask.FromException(new IOException("journal unavailable")) : ValueTask.CompletedTask);
         var events = new EventRecordingLogger();
         using var service = new ReplicaLogCompactionService(
             LeadOwn(committer),
-            durability.Instance(),
+            durability.Object,
             (new ReplicaLogCompactionOptions(), new ReplicaLogCompactionPolicy(long.MaxValue, int.MaxValue)),
             metrics,
             (appliers, registry),
@@ -436,12 +438,12 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         using var meter = new Meter("test");
         var metrics = new ReplicationMetrics(meter);
         var appliers = new ReplicaGroupAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaGroupAppliers>.Instance, metrics);
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
+        var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
         var options = new ReplicaLogCompactionOptions();
         var clock = new DueTimerClock(options.Interval);
         using var service = new ReplicaLogCompactionService(
             LeadOwn(committer),
-            durability.Instance(),
+            durability.Object,
             (options, new ReplicaLogCompactionPolicy(long.MaxValue, int.MaxValue)),
             metrics,
             (appliers, registry),

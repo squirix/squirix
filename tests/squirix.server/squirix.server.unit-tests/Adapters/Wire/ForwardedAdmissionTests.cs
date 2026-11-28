@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Cluster;
@@ -20,6 +19,9 @@ using Squirix.Transport.Wire.Codec;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Adapters.Wire;
 
@@ -132,17 +134,17 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
 
     private static IBackpressureClientIdResolver CreateClientIdResolver()
     {
-        var expectations = new IBackpressureClientIdResolverCreateExpectations();
-        _ = expectations.Setups.Resolve().ReturnValue(ClientId);
-        return expectations.Instance();
+        var expectations = IBackpressureClientIdResolver.Mock(MockBehavior.Strict);
+        _ = expectations.Resolve().Returns(ClientId);
+        return expectations.Object;
     }
 
     private OwnerRpcForwarder CreateForwarder(AdmissionGate entryGate, OwnerGateInvoker invoker, int maxConcurrentPerPeer = 64)
     {
-        var poolExpectations = new IServerClientPoolCreateExpectations();
-        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(invoker);
-        _ = poolExpectations.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(CreatePolicy(maxConcurrentPerPeer));
-        return new OwnerRpcForwarder(poolExpectations.Instance(), entryGate, CreateClientIdResolver(), RingAgreements.Create());
+        var poolExpectations = IServerClientPool.Mock(MockBehavior.Strict);
+        _ = poolExpectations.ForNode(Arg.Any<string>()).Returns(invoker);
+        _ = poolExpectations.PolicyFor(Arg.Any<string>()).Returns(CreatePolicy(maxConcurrentPerPeer));
+        return new OwnerRpcForwarder(poolExpectations.Object, entryGate, CreateClientIdResolver(), RingAgreements.Create());
     }
 
     private ServerCallPolicy CreatePolicy(int maxConcurrentPerPeer) => new(

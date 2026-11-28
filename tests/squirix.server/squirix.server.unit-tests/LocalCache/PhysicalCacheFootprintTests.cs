@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -11,6 +10,9 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.LocalCache;
 
@@ -209,10 +211,10 @@ public sealed class PhysicalCacheFootprintTests : ServerUnitTestBase
     public async Task SetEstimatorFailureLeavesCacheUntouched(CancellationToken cancellationToken)
     {
         var armed = false;
-        var estimator = new ICacheEntrySizeEstimatorCreateExpectations<string>();
-        _ = estimator.Setups.EstimateBytes(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<bool>())
-                     .Callback((_, _, _) => armed ? throw new InvalidOperationException("estimator failure") : 100L);
-        var cache = new PhysicalCache<string>(new FakeTimeProvider(Start), estimator.Instance());
+        var estimator = ICacheEntrySizeEstimator<string>.Mock(MockBehavior.Strict);
+        _ = estimator.EstimateBytes(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<bool>())
+                     .Returns((_, _, _) => armed ? throw new InvalidOperationException("estimator failure") : 100L);
+        var cache = new PhysicalCache<string>(new FakeTimeProvider(Start), estimator.Object);
         cache.Set(KeyA, Entry("stored"), cancellationToken);
         armed = true;
 
@@ -230,13 +232,13 @@ public sealed class PhysicalCacheFootprintTests : ServerUnitTestBase
     public async Task UpdateEstimatorFailureKeepsEntry(CancellationToken cancellationToken)
     {
         var armed = false;
-        var estimator = new ICacheEntrySizeEstimatorCreateExpectations<string>();
-        _ = estimator.Setups.EstimateBytes(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<bool>())
-                     .Callback((_, _, _) => armed ? throw new InvalidOperationException("estimator failure") : 100L);
-        _ = estimator.Setups.MeasureValue(Arg.Any<string?>()).ReturnValue(0L);
-        _ = estimator.Setups.EstimateBytesForMeasuredValue(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<long>())
-                     .Callback((_, _, _) => armed ? throw new InvalidOperationException("estimator failure") : 100L);
-        var cache = new PhysicalCache<string>(new FakeTimeProvider(Start), estimator.Instance());
+        var estimator = ICacheEntrySizeEstimator<string>.Mock(MockBehavior.Strict);
+        _ = estimator.EstimateBytes(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<bool>())
+                     .Returns((_, _, _) => armed ? throw new InvalidOperationException("estimator failure") : 100L);
+        _ = estimator.MeasureValue(Arg.Any<string?>()).Returns(0L);
+        _ = estimator.EstimateBytesForMeasuredValue(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<long>())
+                     .Returns((_, _, _) => armed ? throw new InvalidOperationException("estimator failure") : 100L);
+        var cache = new PhysicalCache<string>(new FakeTimeProvider(Start), estimator.Object);
         cache.Set(KeyA, Entry("stored"), cancellationToken);
         armed = true;
 
@@ -255,13 +257,13 @@ public sealed class PhysicalCacheFootprintTests : ServerUnitTestBase
     public async Task EstimatorFailureKeepsEvictionOrder(bool touch, CancellationToken cancellationToken)
     {
         var armed = false;
-        var estimator = new ICacheEntrySizeEstimatorCreateExpectations<string>();
-        _ = estimator.Setups.EstimateBytes(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<bool>())
-                     .Callback((_, _, _) => armed ? throw new InvalidOperationException("estimator failure") : 100L);
-        _ = estimator.Setups.MeasureValue(Arg.Any<string?>()).ReturnValue(0L);
-        _ = estimator.Setups.EstimateBytesForMeasuredValue(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<long>())
-                     .Callback((_, _, _) => armed ? throw new InvalidOperationException("estimator failure") : 100L);
-        var cache = new PhysicalCache<string>(new FakeTimeProvider(Start), estimator.Instance(), new EvictionOptions { Capacity = 2, Policy = EvictionPolicyType.Lru });
+        var estimator = ICacheEntrySizeEstimator<string>.Mock(MockBehavior.Strict);
+        _ = estimator.EstimateBytes(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<bool>())
+                     .Returns((_, _, _) => armed ? throw new InvalidOperationException("estimator failure") : 100L);
+        _ = estimator.MeasureValue(Arg.Any<string?>()).Returns(0L);
+        _ = estimator.EstimateBytesForMeasuredValue(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<long>())
+                     .Returns((_, _, _) => armed ? throw new InvalidOperationException("estimator failure") : 100L);
+        var cache = new PhysicalCache<string>(new FakeTimeProvider(Start), estimator.Object, new EvictionOptions { Capacity = 2, Policy = EvictionPolicyType.Lru });
         cache.Set(KeyA, Entry("oldest"), cancellationToken);
         cache.Set(KeyB, Entry("newest"), cancellationToken);
         armed = true;
@@ -283,10 +285,10 @@ public sealed class PhysicalCacheFootprintTests : ServerUnitTestBase
     public async Task ReusePreservesChargesAndVersions(CancellationToken cancellationToken)
     {
         const long large = 1L << 40;
-        var estimator = new ICacheEntrySizeEstimatorCreateExpectations<string>();
-        _ = estimator.Setups.EstimateBytes(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<bool>())
-                     .Callback(static (_, entry, _) => string.Equals(entry.Value, "large", StringComparison.Ordinal) ? large : 7L);
-        var cache = new PhysicalCache<string>(TimeProvider.System, estimator.Instance());
+        var estimator = ICacheEntrySizeEstimator<string>.Mock(MockBehavior.Strict);
+        _ = estimator.EstimateBytes(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<bool>())
+                     .Returns(static (_, entry, _) => string.Equals(entry.Value, "large", StringComparison.Ordinal) ? large : 7L);
+        var cache = new PhysicalCache<string>(TimeProvider.System, estimator.Object);
         cache.Set(KeyA, Entry("first"), cancellationToken);
         cache.Set(KeyB, Entry("second"), cancellationToken);
         cache.Set(KeyB, new NodeCacheEntry<string>("large", long.MaxValue), cancellationToken);

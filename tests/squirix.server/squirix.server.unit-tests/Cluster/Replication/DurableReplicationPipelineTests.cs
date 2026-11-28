@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
@@ -13,6 +12,9 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -603,25 +605,25 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 
     private static IReplicaCommitFaultHooks CreateThrowOnFanOutHooks()
     {
-        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
-        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).Callback(static (stage, _, _) =>
+        var expectations = IReplicaCommitFaultHooks.Mock(MockBehavior.Strict);
+        _ = expectations.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnsAsync(static (stage, _, _) =>
         {
             var exception = new InvalidOperationException("Injected fan-out failure.");
             return stage == ReplicaCommitStage.FollowerFanOutStarted ? ValueTask.FromException(exception) : ValueTask.CompletedTask;
         });
-        return expectations.Instance();
+        return expectations.Object;
     }
 
     private static IReplicaCommitFaultHooks CreateThrowOnFirstMajorityHooks()
     {
-        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
-        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
-                        .Callback(static (stage, mutation, _) =>
+        var expectations = IReplicaCommitFaultHooks.Mock(MockBehavior.Strict);
+        _ = expectations.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync(static (stage, mutation, _) =>
                          {
                              var exception = new InvalidOperationException("Injected post-majority failure.");
                              return stage == ReplicaCommitStage.MajorityReached && mutation.LogIndex == 1 ? ValueTask.FromException(exception) : ValueTask.CompletedTask;
                          });
-        return expectations.Instance();
+        return expectations.Object;
     }
 
     private static FollowerLogEntry TailEntry(ulong logIndex, ulong term, string operationId)

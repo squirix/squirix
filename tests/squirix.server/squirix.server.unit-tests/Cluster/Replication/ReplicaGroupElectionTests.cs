@@ -1,15 +1,18 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Cluster.Replication.ElectionTestDoubles;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
@@ -49,10 +52,10 @@ public sealed class ReplicaGroupElectionTests : ServerUnitTestBase
     [Test]
     public async Task PreVoteRefusalKeepsTerm(CancellationToken cancellationToken)
     {
-        var expectations = new IReplicaVoteGatewayCreateExpectations();
-        _ = expectations.Setups.PreVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
-                        .ReturnValue(Task.FromResult(new FollowerLogVoteResult(false, RefusalCodes.LeaderContact, 0UL)));
-        await using var scope = await OpenAsync("n2", 3, expectations.Instance());
+        var expectations = IReplicaVoteGateway.Mock(MockBehavior.Strict);
+        _ = expectations.PreVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync(Task.FromResult(new FollowerLogVoteResult(false, RefusalCodes.LeaderContact, 0UL)));
+        await using var scope = await OpenAsync("n2", 3, new ReplicaVoteGatewayWithDefaults(expectations.Object));
         var election = CreateElection(scope, Three);
         _ = await election.StepAsync(cancellationToken);
         scope.Time.Advance(Options.ElectionTimeout);

@@ -5,7 +5,6 @@ using System.Net.Http;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -21,6 +20,9 @@ using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Adapters.Wire;
 
@@ -286,17 +288,17 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
 
     private static IBackpressureGate CreateGate()
     {
-        var expectations = new IBackpressureGateCreateExpectations();
-        _ = expectations.Setups.AcquireAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                        .ReturnValue(ValueTask.FromResult((Decision.Accepted(), Lease.Empty)));
-        return expectations.Instance();
+        var expectations = IBackpressureGate.Mock(MockBehavior.Strict);
+        _ = expectations.AcquireAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync(ValueTask.FromResult((Decision.Accepted(), Lease.Empty)));
+        return expectations.Object;
     }
 
     private static IBackpressureClientIdResolver CreateClientIdResolver()
     {
-        var expectations = new IBackpressureClientIdResolverCreateExpectations();
-        _ = expectations.Setups.Resolve().ReturnValue("jwt:client");
-        return expectations.Instance();
+        var expectations = IBackpressureClientIdResolver.Mock(MockBehavior.Strict);
+        _ = expectations.Resolve().Returns("jwt:client");
+        return expectations.Object;
     }
 
     /// <summary>Creates a forwarder over a real pool whose owner policy is <paramref name="policy" />.</summary>
@@ -305,10 +307,10 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
     /// <returns>The forwarder.</returns>
     private static OwnerRpcForwarder CreateForwarder(ServerClientPool pool, ServerCallPolicy policy)
     {
-        var routed = new IServerClientPoolCreateExpectations();
-        _ = routed.Setups.ForNode(Arg.Any<string>()).ReturnValue(pool.ForNode(Owner));
-        _ = routed.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(policy);
-        return new OwnerRpcForwarder(routed.Instance(), CreateGate(), CreateClientIdResolver(), RingAgreements.Create());
+        var routed = IServerClientPool.Mock(MockBehavior.Strict);
+        _ = routed.ForNode(Arg.Any<string>()).Returns(pool.ForNode(Owner));
+        _ = routed.PolicyFor(Arg.Any<string>()).Returns(policy);
+        return new OwnerRpcForwarder(routed.Object, CreateGate(), CreateClientIdResolver(), RingAgreements.Create());
     }
 
     /// <summary>Creates a forwarder whose call policy makes up to three attempts without backoff.</summary>
@@ -317,10 +319,10 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
     private OwnerRpcForwarder CreateForwarder(CapturingCallInvoker invoker)
     {
         var policy = CreatePolicy(TimeSpan.FromSeconds(30), TimeProvider.System);
-        var pool = new IServerClientPoolCreateExpectations();
-        _ = pool.Setups.ForNode(Arg.Any<string>()).ReturnValue(invoker);
-        _ = pool.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(policy);
-        return new OwnerRpcForwarder(pool.Instance(), CreateGate(), CreateClientIdResolver(), RingAgreements.Create());
+        var pool = IServerClientPool.Mock(MockBehavior.Strict);
+        _ = pool.ForNode(Arg.Any<string>()).Returns(invoker);
+        _ = pool.PolicyFor(Arg.Any<string>()).Returns(policy);
+        return new OwnerRpcForwarder(pool.Object, CreateGate(), CreateClientIdResolver(), RingAgreements.Create());
     }
 
     private ServerCallPolicy CreatePolicy(TimeSpan perAttempt, TimeProvider clock, int attempts = 3) => new(

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -19,6 +18,9 @@ using Squirix.Transport.Wire;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Adapters.Wire;
 
@@ -270,14 +272,14 @@ public sealed class OwnerRouterAttemptBudgetTests
 
     private static OwnerRouter CreateRouter(string self, IGroupLeaderTable table, bool internalCall, TimeProvider clock, TimeSpan leaderWait)
     {
-        var ownership = new INodeOwnershipResolverCreateExpectations();
-        _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(self);
-        _ = ownership.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(FirstMember);
-        var invocation = new IRemoteInvocationStateCreateExpectations();
-        _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(internalCall);
+        var ownership = INodeOwnershipResolver.Mock(MockBehavior.Strict);
+        _ = ownership.SelfNodeId.Returns(self);
+        _ = ownership.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns(FirstMember);
+        var invocation = IRemoteInvocationState.Mock(MockBehavior.Strict);
+        _ = invocation.IsInternalOwnerInvocation.Returns(internalCall);
         return new OwnerRouter(
-            ownership.Instance(),
-            invocation.Instance(),
+            ownership.Object,
+            invocation.Object,
             RingAgreements.Create(),
             table,
             leaderWait,

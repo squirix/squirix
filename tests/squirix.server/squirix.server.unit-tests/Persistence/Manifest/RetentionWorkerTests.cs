@@ -4,7 +4,6 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
@@ -15,6 +14,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Persistence.Manifest;
 
@@ -28,13 +30,13 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
     public async Task CleanupWithBadDirRecordsFailure(CancellationToken cancellationToken)
     {
         var outcomes = new ConcurrentQueue<bool>();
-        var readiness = new IRetentionCleanupReadinessStatusCreateExpectations();
-        _ = readiness.Setups.RecordWriteOutcome(Arg.Any<bool>()).Callback(outcomes.Enqueue);
+        var readiness = IRetentionCleanupReadinessStatus.Mock(MockBehavior.Strict);
+        _ = readiness.RecordWriteOutcome(Arg.Any<bool>()).Callback(outcomes.Enqueue);
         var failures = 0;
-        var metrics = new IManifestRetentionFailureMetricsCreateExpectations();
-        _ = metrics.Setups.RecordDeleteFailure(Arg.Any<string>(), Arg.Any<string>()).Callback((_, _) => Interlocked.Increment(ref failures));
-        var context = new RetentionContext("..", null, NullLogger.Instance, metrics.Instance());
-        var worker = new RetentionWorker(context, readiness.Instance(), new JournalCapacityResyncSignal());
+        var metrics = IManifestRetentionFailureMetrics.Mock(MockBehavior.Strict);
+        _ = metrics.RecordDeleteFailure(Arg.Any<string>(), Arg.Any<string>()).Callback((_, _) => Interlocked.Increment(ref failures));
+        var context = new RetentionContext("..", null, NullLogger.Instance, metrics.Object);
+        var worker = new RetentionWorker(context, readiness.Object, new JournalCapacityResyncSignal());
 
         worker.ScheduleRetentionCleanup(new State { CurrentJournal = 2, LastSnapshot = new SnapshotRef { Index = 2, CreatedUtc = DateTime.UtcNow } });
 
@@ -116,10 +118,10 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("retention-worker-stop");
         using var probe = new FirstPassProbe(cancellationToken);
-        var readiness = new IRetentionCleanupReadinessStatusCreateExpectations();
-        _ = readiness.Setups.RecordWriteOutcome(Arg.Any<bool>()).Callback(Bind.To<FirstPassProbe, Action<bool>>(probe, static pass => _ => pass.RecordPass()));
+        var readiness = IRetentionCleanupReadinessStatus.Mock(MockBehavior.Strict);
+        _ = readiness.RecordWriteOutcome(Arg.Any<bool>()).Callback(Bind.To<FirstPassProbe, Action<bool>>(probe, static pass => _ => pass.RecordPass()));
         var context = new RetentionContext(dir, null, NullLogger.Instance, NoOpRetentionFailureMetrics.Instance);
-        var worker = new RetentionWorker(context, readiness.Instance(), new JournalCapacityResyncSignal());
+        var worker = new RetentionWorker(context, readiness.Object, new JournalCapacityResyncSignal());
 
         worker.ScheduleRetentionCleanup(new State { CurrentJournal = 1 });
         await probe.WaitUntilEndingAsync();
@@ -148,8 +150,8 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
         var failedPath = new StrongBox<string?>();
         var attempts = 0;
         var realFiles = new FileOperations();
-        var fileOperations = new IStorageFileOperationsCreateExpectations();
-        _ = fileOperations.Setups.TryDelete(Arg.Any<string>()).Callback(path =>
+        var fileOperations = IStorageFileOperations.Mock(MockBehavior.Strict);
+        _ = fileOperations.TryDelete(Arg.Any<string>()).Returns(path =>
         {
             if (Interlocked.Increment(ref attempts) != 1 || !failOneDelete)
                 return realFiles.TryDelete(path);
@@ -157,7 +159,7 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
             return false;
         });
         var signal = new JournalCapacityResyncSignal();
-        var worker = CreateWorker(dir, signal, out var passes, fileOperations.Instance());
+        var worker = CreateWorker(dir, signal, out var passes, fileOperations.Object);
 
         worker.ScheduleRetentionCleanup(SnapshotState(4, 3));
         await passes.WaitUntilAsync(static p => !p.IsEmpty, cancellationToken);
@@ -180,10 +182,10 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
     private static RetentionWorker CreateWorker(string dir, JournalCapacityResyncSignal signal, out ConcurrentQueue<bool> passes, IStorageFileOperations? fileOperations = null)
     {
         var outcomes = new ConcurrentQueue<bool>();
-        var readiness = new IRetentionCleanupReadinessStatusCreateExpectations();
-        _ = readiness.Setups.RecordWriteOutcome(Arg.Any<bool>()).Callback(outcomes.Enqueue);
+        var readiness = IRetentionCleanupReadinessStatus.Mock(MockBehavior.Strict);
+        _ = readiness.RecordWriteOutcome(Arg.Any<bool>()).Callback(outcomes.Enqueue);
         passes = outcomes;
-        return new RetentionWorker(new RetentionContext(dir, fileOperations, NullLogger.Instance, NoOpRetentionFailureMetrics.Instance), readiness.Instance(), signal);
+        return new RetentionWorker(new RetentionContext(dir, fileOperations, NullLogger.Instance, NoOpRetentionFailureMetrics.Instance), readiness.Object, signal);
     }
 
     private static State SnapshotState(int currentJournal, int replayFrom) => new()

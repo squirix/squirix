@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -14,6 +13,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
@@ -49,9 +51,9 @@ public sealed class WriterCleanupTests : IsolatedStorageTestBase
         var writer = new SnapshotWriter(Dir);
         var path = await writer.WriteSingleAsync(1, CacheKey.Default("stable"), BuildEntry("old"), cancellationToken);
 
-        var fileOperations = new IStorageFileOperationsCreateExpectations();
-        _ = fileOperations.Setups.PublishSnapshot(Arg.Any<string>(), Arg.Any<string>()).Throws<IOException>();
-        var failingWriter = new SnapshotWriter(Dir, fileOperations.Instance());
+        var fileOperations = IStorageFileOperations.Mock(MockBehavior.Strict);
+        _ = fileOperations.PublishSnapshot(Arg.Any<string>(), Arg.Any<string>()).Throws<IOException>();
+        var failingWriter = new SnapshotWriter(Dir, fileOperations.Object);
         _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException, string>(failingWriter.WriteSingleAsync(1, CacheKey.Default("replacement"), BuildEntry("new"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(File.Exists(path)).IsTrue();

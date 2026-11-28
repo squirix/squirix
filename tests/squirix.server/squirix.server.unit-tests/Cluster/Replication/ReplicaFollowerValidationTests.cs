@@ -23,7 +23,7 @@ public sealed class ReplicaFollowerValidationTests : ServerUnitTestBase
     public async Task AppendOnUnknownGroupIsRefusedAsync(CancellationToken cancellationToken)
     {
         await using var registry = CreateClosedRegistry();
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         var batch = new FollowerBatch([], "node-a", 7, 0, 0, 0);
 
         var result = await follower.AppendAsync("unknown-group", ReadOnlyMemory<byte>.Empty, 1, batch, cancellationToken);
@@ -38,7 +38,7 @@ public sealed class ReplicaFollowerValidationTests : ServerUnitTestBase
     {
         ReplicaGroupRegistry? registry = null;
 
-        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(registry, static r => _ = new ReplicaFollower(r!, RocksDoubles.CreateReplicaMembers()));
+        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(registry, static r => _ = new ReplicaFollower(r!, TestDoubles.CreateReplicaMembers()));
     }
 
     /// <summary>Verifies that a pre-vote on an unserved group is refused before any log is reached.</summary>
@@ -47,7 +47,7 @@ public sealed class ReplicaFollowerValidationTests : ServerUnitTestBase
     public async Task PreVoteOnUnknownGroupIsRefusedAsync(CancellationToken cancellationToken)
     {
         await using var registry = CreateClosedRegistry();
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
 
         var result = await follower.PreVoteAsync("unknown-group", ReadOnlyMemory<byte>.Empty, 1, new ElectionVoteRequest("node-b", 7, 0, 0), cancellationToken);
 
@@ -62,7 +62,7 @@ public sealed class ReplicaFollowerValidationTests : ServerUnitTestBase
     public async Task StatusOnUnknownGroupIsNullAsync(CancellationToken cancellationToken)
     {
         await using var registry = CreateClosedRegistry();
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
 
         var status = await follower.GetStatusAsync("unknown-group", cancellationToken);
 
@@ -75,7 +75,7 @@ public sealed class ReplicaFollowerValidationTests : ServerUnitTestBase
     public async Task VoteOnUnknownGroupIsRefusedAsync(CancellationToken cancellationToken)
     {
         await using var registry = CreateClosedRegistry();
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
 
         var result = await follower.RequestVoteAsync("unknown-group", ReadOnlyMemory<byte>.Empty, 1, new ElectionVoteRequest("node-b", 7, 0, 0), cancellationToken);
 

@@ -15,6 +15,8 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -35,7 +37,7 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-bootstrap-offered");
         await using var registry = await OpenRegistryAsync(dir, true, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
 
         var result = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(LeaderId), cancellationToken);
 
@@ -52,7 +54,7 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-bootstrap-no-offer");
         await using var registry = await OpenRegistryAsync(dir, false, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
 
         var result = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(LeaderId), cancellationToken);
 
@@ -69,7 +71,7 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-bootstrap-votes");
         await using var registry = await OpenRegistryAsync(dir, false, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         var state = registry.StateFor(GroupId);
         var reset = state.ElectionResetTimestamp();
         var ballot = new ElectionVoteRequest("n3", 5UL, 0UL, 0UL);
@@ -92,7 +94,7 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-bootstrap-prevote");
         await using var registry = await OpenRegistryAsync(dir, true, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
 
         var result = await follower.PreVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 5UL, 0UL, 0UL), cancellationToken);
 
@@ -107,7 +109,7 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-bootstrap-vote");
         await using var registry = await OpenRegistryAsync(dir, true, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
 
         var result = await follower.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 5UL, 0UL, 0UL), cancellationToken);
 
@@ -144,7 +146,7 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-bootstrap-mismatch");
         await SeededLogs.SeedGroupsAsync(dir, [GroupId], cancellationToken);
         await using var registry = await OpenRegistryAsync(dir, false, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         var other = new byte[] { 4 };
         var ballot = new ElectionVoteRequest("n3", 5UL, 0UL, 0UL);
         _ = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(LeaderId), cancellationToken);
@@ -166,20 +168,20 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-bootstrap-not-ready");
         await SeededLogs.SeedGroupsAsync(dir, [GroupId], cancellationToken);
         var armed = false;
-        var faults = new IFollowerLogFaultHooksCreateExpectations();
-        _ = faults.Setups.OnFrameWritten();
-        _ = faults.Setups.OnFramesScheduling();
-        _ = faults.Setups.OnFlushed();
-        _ = faults.Setups.OnCommitAdvanced();
-        _ = faults.Setups.OnBeforeMemoryApply();
-        _ = faults.Setups.OnMetaPublishing().Callback(() =>
+        var faults = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+        _ = faults.OnFrameWritten();
+        _ = faults.OnFramesScheduling();
+        _ = faults.OnFlushed();
+        _ = faults.OnCommitAdvanced();
+        _ = faults.OnBeforeMemoryApply();
+        _ = faults.OnMetaPublishing().Callback(() =>
         {
             if (Volatile.Read(ref armed))
                 throw new IOException("simulated failure at a metadata publish.");
         });
 
-        await using var registry = await OpenRegistryAsync(dir, faults.Instance(), cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        await using var registry = await OpenRegistryAsync(dir, faults.Object, cancellationToken);
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         _ = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(LeaderId), cancellationToken);
         Volatile.Write(ref armed, true);
         _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(follower.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 5UL, 0UL, 0UL), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -217,7 +219,7 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-bytes");
         await using var registry = await OpenRegistryAsync(dir, true, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         FollowerLogEntry[] sent = [Entry(1), Entry(2)];
 
         var result = await follower.AppendAsync(GroupId, Fingerprint, 1UL, new FollowerBatch(sent, LeaderId, 1, 0, 0, 0), cancellationToken);
@@ -244,7 +246,7 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-malformed");
         await using var registry = await OpenRegistryAsync(dir, true, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         var damaged = Damaged(malformation);
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         var before = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);

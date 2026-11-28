@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Attributes;
@@ -26,6 +25,9 @@ using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Threading;
 using Squirix.Testing;
 using Squirix.Transport.Wire.Cache;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Support;
 
@@ -181,22 +183,22 @@ internal sealed class FusedWriteHarness
 
     private RoutedCacheOperations<StoredValue> CreateAdapter(ILogicalNamespacedCache<StoredValue> api)
     {
-        var operations = new IInboundEndpointCacheOperationsCreateExpectations<StoredValue>();
-        _ = operations.Setups.ForCache(CacheName).ReturnValue(new RoutedCacheApi<StoredValue>(api, CacheName));
-        var ownership = new INodeOwnershipResolverCreateExpectations();
-        _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
-        _ = ownership.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(Self);
-        var invocation = new IRemoteInvocationStateCreateExpectations();
-        _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(false);
+        var operations = IInboundEndpointCacheOperations<StoredValue>.Mock(MockBehavior.Strict);
+        _ = operations.ForCache(CacheName).Returns(new RoutedCacheApi<StoredValue>(api, CacheName));
+        var ownership = INodeOwnershipResolver.Mock(MockBehavior.Strict);
+        _ = ownership.SelfNodeId.Returns(Self);
+        _ = ownership.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns(Self);
+        var invocation = IRemoteInvocationState.Mock(MockBehavior.Strict);
+        _ = invocation.IsInternalOwnerInvocation.Returns(false);
 
         // Nothing is forwarded: the pool and the backpressure gate have no setups.
         return new RoutedCacheOperations<StoredValue>(
-            operations.Instance(),
-            OwnerRouters.Static(ownership.Instance(), invocation.Instance(), Self),
+            operations.Object,
+            OwnerRouters.Static(ownership.Object, invocation.Object, Self),
             new OwnerRpcForwarder(
-                new IServerClientPoolCreateExpectations().Instance(),
-                new IBackpressureGateCreateExpectations().Instance(),
-                new IBackpressureClientIdResolverCreateExpectations().Instance(),
+                IServerClientPool.Mock(MockBehavior.Strict).Object,
+                IBackpressureGate.Mock(MockBehavior.Strict).Object,
+                IBackpressureClientIdResolver.Mock(MockBehavior.Strict).Object,
                 RingAgreements.Create()),
             false,
             Clock,

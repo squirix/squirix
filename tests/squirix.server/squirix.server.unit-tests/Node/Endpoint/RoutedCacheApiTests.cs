@@ -4,6 +4,7 @@ using Squirix.Server.Node.Endpoint;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using TUnit.Core;
+using TUnit.Mocks;
 
 namespace Squirix.Server.UnitTests.Node.Endpoint;
 
@@ -15,7 +16,7 @@ public sealed class RoutedCacheApiTests
     [Test]
     public void ConstructorRequiresCacheName()
     {
-        var namespaced = new ILogicalNamespacedCacheCreateExpectations<string>().Instance();
+        var namespaced = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict).Object;
         const string? cacheName = null;
         _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(namespaced, cacheName, static (ns, name) => _ = new RoutedCacheApi<string>(ns, name!));
     }

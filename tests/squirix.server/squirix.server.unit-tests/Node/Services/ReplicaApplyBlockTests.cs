@@ -3,18 +3,18 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaApplyServiceTests;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
@@ -81,9 +81,9 @@ public sealed class ReplicaApplyBlockTests : ServerUnitTestBase
         await SeedAsync(registry, "n2", 1UL, cancellationToken, "k1");
         var writes = 0;
         var applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
-                 .Callback((_, _, _, _, _) =>
+        var cache = TestDoubles.CreateCacheWithEntryWriteOverloads<StoredValue>();
+        _ = cache.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
+                 .ReturnsAsync((_, _, _, _, _) =>
                   {
                       var write = Interlocked.Increment(ref writes);
                       if (write == 1)
@@ -96,7 +96,7 @@ public sealed class ReplicaApplyBlockTests : ServerUnitTestBase
                   });
         var events = new EventRecordingLogger();
         using var meter = new Meter("test");
-        var appliers = CreateAppliers(registry, cache.Instance(), meter);
+        var appliers = CreateAppliers(registry, cache.Object, meter);
         var block = registry.StateFor("n2").ApplyBlock;
         using var service = CreateService(registry, appliers, events);
         var before = block.IsBlocked;
@@ -108,7 +108,7 @@ public sealed class ReplicaApplyBlockTests : ServerUnitTestBase
         {
             await events.WhenLoggedAsync(RetryEventId).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             whileFaulting = block is { IsBlocked: true, IsAssessed: true };
-            _ = await new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers()).AppendAsync("n2", Fingerprint, 1, Batch(Prepare("k2", 2UL), 1UL, 2UL), cancellationToken);
+            _ = await new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers()).AppendAsync("n2", Fingerprint, 1, Batch(Prepare("k2", 2UL), 1UL, 2UL), cancellationToken);
             await applied.Task.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
             // The lease waits for the running pass, which clears the block before it ends.
@@ -222,9 +222,9 @@ public sealed class ReplicaApplyBlockTests : ServerUnitTestBase
         await SeedAsync(registry, "n2", 1UL, cancellationToken, "k1");
         var writes = 0;
         var reapplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
-                 .Callback((_, _, _, _, _) =>
+        var cache = TestDoubles.CreateCacheWithEntryWriteOverloads<StoredValue>();
+        _ = cache.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
+                 .ReturnsAsync((_, _, _, _, _) =>
                   {
                       if (Interlocked.Increment(ref writes) == 1)
                           return ValueTask.FromException(new InvalidDataException("undecodable record"));
@@ -234,7 +234,7 @@ public sealed class ReplicaApplyBlockTests : ServerUnitTestBase
                   });
         var events = new EventRecordingLogger();
         using var meter = new Meter("test");
-        var appliers = CreateAppliers(registry, cache.Instance(), meter);
+        var appliers = CreateAppliers(registry, cache.Object, meter);
         var block = registry.StateFor("n2").ApplyBlock;
         using var service = CreateService(registry, appliers, events);
 

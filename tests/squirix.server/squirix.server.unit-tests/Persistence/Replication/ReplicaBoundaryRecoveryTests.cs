@@ -12,6 +12,8 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -111,15 +113,15 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
         await WriteMetadataAsync(dir, in boundaryMeta, cancellationToken);
         await ReplicaLastIndexRecoveryTests.PublishSnapshotAsync(dir, GroupId, 4UL, cancellationToken);
 
-        var faults = new IFollowerLogFaultHooksCreateExpectations();
-        _ = faults.Setups.OnMetaPublishing().Callback(static () => throw new IOException("simulated failure at the metadata publish."));
-        _ = faults.Setups.OnCommitAdvanced();
-        _ = faults.Setups.OnFrameWritten();
-        _ = faults.Setups.OnFramesScheduling();
-        _ = faults.Setups.OnFlushed();
-        _ = faults.Setups.OnBeforeMemoryApply();
+        var faults = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+        _ = faults.OnMetaPublishing().Callback(static () => throw new IOException("simulated failure at the metadata publish."));
+        _ = faults.OnCommitAdvanced();
+        _ = faults.OnFrameWritten();
+        _ = faults.OnFramesScheduling();
+        _ = faults.OnFlushed();
+        _ = faults.OnBeforeMemoryApply();
 
-        await using (var failing = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = faults.Instance() }))
+        await using (var failing = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = faults.Object }))
         {
             _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(failing.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(failing.Readiness).IsEqualTo(FollowerLogReadiness.Failed);

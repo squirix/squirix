@@ -4,7 +4,6 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -22,6 +21,9 @@ using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Adapters.Wire;
 
@@ -272,15 +274,15 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
             State = registry.StateFor(Group);
             State.ObserveLeaderContact(First, 3UL);
             registry.StateFor(Other).ObserveLeaderContact(Other, 3UL);
-            var ownership = new INodeOwnershipResolverCreateExpectations();
-            _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
-            _ = ownership.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Callback(static (_, key) => string.Equals(key, Other, StringComparison.Ordinal) ? Other : Group);
-            var invocation = new IRemoteInvocationStateCreateExpectations();
-            _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(false);
+            var ownership = INodeOwnershipResolver.Mock(MockBehavior.Strict);
+            _ = ownership.SelfNodeId.Returns(Self);
+            _ = ownership.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns(static (_, key) => string.Equals(key, Other, StringComparison.Ordinal) ? Other : Group);
+            var invocation = IRemoteInvocationState.Mock(MockBehavior.Strict);
+            _ = invocation.IsInternalOwnerInvocation.Returns(false);
             var locator = OwnerRouters.Locator(Self, First, Second, Group, Other);
             Router = new OwnerRouter(
-                ownership.Instance(),
-                invocation.Instance(),
+                ownership.Object,
+                invocation.Object,
                 RingAgreements.Create(),
                 new ReplicaLeaderTable(registry, Self, locator),
                 LeaderWait,

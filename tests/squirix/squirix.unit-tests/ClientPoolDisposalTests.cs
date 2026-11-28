@@ -10,6 +10,8 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.UnitTests;
 
@@ -47,19 +49,19 @@ public sealed class ClientPoolDisposalTests
     {
         using var sink = new MeasurementSink("Squirix");
         var peers = CreatePeers("policy-dispose-failure");
-        var failing = new ICallPolicyCreateExpectations();
-        _ = failing.Setups.BeginDrain();
-        _ = failing.Setups.DisposeAsync().Callback(static () => ValueTask.FromException(new InvalidOperationException("Policy dispose failed.")));
-        var failingPolicy = failing.Instance();
+        var failing = ICallPolicy.Mock(MockBehavior.Strict);
+        _ = failing.BeginDrain();
+        _ = failing.DisposeAsync().ReturnsAsync(static () => ValueTask.FromException(new InvalidOperationException("Policy dispose failed.")));
+        var failingPolicy = failing.Object;
         var secondDisposed = false;
-        var second = new ICallPolicyCreateExpectations();
-        _ = second.Setups.BeginDrain();
-        _ = second.Setups.DisposeAsync().Callback(() =>
+        var second = ICallPolicy.Mock(MockBehavior.Strict);
+        _ = second.BeginDrain();
+        _ = second.DisposeAsync().ReturnsAsync(() =>
         {
             secondDisposed = true;
             return ValueTask.CompletedTask;
         });
-        var secondPolicy = second.Instance();
+        var secondPolicy = second.Object;
         var pool = new ClientPool(peers, nodeId => string.Equals(nodeId, peers[0].NodeId, StringComparison.Ordinal) ? failingPolicy : secondPolicy, TimeProvider.System);
 
         await pool.DisposeAsync();
@@ -74,10 +76,10 @@ public sealed class ClientPoolDisposalTests
     {
         using var sink = new MeasurementSink("Squirix");
         var peers = CreatePeers("drain-failure");
-        var failing = new ICallPolicyCreateExpectations();
-        _ = failing.Setups.BeginDrain().Callback(static () => throw new InvalidOperationException("Policy drain failed."));
-        _ = failing.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
-        var failingPolicy = failing.Instance();
+        var failing = ICallPolicy.Mock(MockBehavior.Strict);
+        _ = failing.BeginDrain().Callback(static () => throw new InvalidOperationException("Policy drain failed."));
+        _ = failing.DisposeAsync().ReturnsAsync(ValueTask.CompletedTask);
+        var failingPolicy = failing.Object;
         var pool = new ClientPool(peers, nodeId => string.Equals(nodeId, peers[0].NodeId, StringComparison.Ordinal) ? failingPolicy : new CallPolicy(TimeProvider.System), TimeProvider.System);
 
         await pool.DisposeAsync();
@@ -90,14 +92,14 @@ public sealed class ClientPoolDisposalTests
     public async Task RepeatedDisposeRunsOnceAsync()
     {
         var disposals = 0;
-        var expectations = new ICallPolicyCreateExpectations();
-        _ = expectations.Setups.BeginDrain();
-        _ = expectations.Setups.DisposeAsync().Callback(() =>
+        var expectations = ICallPolicy.Mock(MockBehavior.Strict);
+        _ = expectations.BeginDrain();
+        _ = expectations.DisposeAsync().ReturnsAsync(() =>
         {
             disposals++;
             return ValueTask.CompletedTask;
         });
-        var policy = expectations.Instance();
+        var policy = expectations.Object;
         var pool = new ClientPool(Peers, _ => policy, TimeProvider.System);
 
         await pool.DisposeAsync();
@@ -111,10 +113,10 @@ public sealed class ClientPoolDisposalTests
     public async Task SecondDisposeWaitsForFirstAsync()
     {
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var expectations = new ICallPolicyCreateExpectations();
-        _ = expectations.Setups.BeginDrain();
-        _ = expectations.Setups.DisposeAsync().ReturnValue(new ValueTask(release.Task));
-        var policy = expectations.Instance();
+        var expectations = ICallPolicy.Mock(MockBehavior.Strict);
+        _ = expectations.BeginDrain();
+        _ = expectations.DisposeAsync().ReturnsAsync(new ValueTask(release.Task));
+        var policy = expectations.Object;
         var pool = new ClientPool([Peers[0]], _ => policy, TimeProvider.System);
 
         var first = StartDisposeAsync(pool);

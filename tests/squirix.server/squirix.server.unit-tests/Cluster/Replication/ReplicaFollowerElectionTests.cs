@@ -34,7 +34,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-election-contact");
         await using var registry = await OpenRegistryAsync(dir, time, cancellationToken);
         registry.StateFor(GroupId).SetElectionDriven(true);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         var ballot = new ElectionVoteRequest("n3", 8UL, 0UL, 0UL);
 
         _ = await follower.AppendAsync(GroupId, Fingerprint, 1UL, new FollowerBatch([], "n2", 7UL, 0UL, 0UL, 0UL), cancellationToken);
@@ -56,7 +56,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-election-undriven");
         await using var registry = await OpenRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         _ = await follower.AppendAsync(GroupId, Fingerprint, 1UL, new FollowerBatch([], "n2", 7UL, 0UL, 0UL, 0UL), cancellationToken);
 
         var answered = await follower.PreVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 8UL, 0UL, 0UL), cancellationToken);
@@ -144,7 +144,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         _ = state.BecomeLeader(2UL);
         _ = state.GrantAuthority(2UL);
 
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         var refused = await follower.PreVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 3UL, 0UL, 0UL), cancellationToken);
 
         _ = await Assert.That((refused.Granted, refused.RefusalCode)).IsEqualTo((false, RefusalCodes.LeaderContact));
@@ -158,7 +158,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-election-mismatch");
         await using var registry = await OpenRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
 
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         var result = await follower.AppendAsync(GroupId, Fingerprint, 1UL, new FollowerBatch([], "n2", 3UL, 5UL, 1UL, 0UL), cancellationToken);
 
         _ = await Assert.That(result.RefusalCode).IsEqualTo(FollowerLogRefusal.LogMismatch);
@@ -172,7 +172,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-election-stale");
         await using var registry = await OpenRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         _ = await follower.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 5UL, 0UL, 0UL), cancellationToken);
         var state = registry.StateFor(GroupId);
         var reset = state.ElectionResetTimestamp();
@@ -191,7 +191,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-election-vote");
         await using var registry = await OpenRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         var state = registry.StateFor(GroupId);
         state.SetElectionDriven(true);
         _ = state.BecomeLeader(2UL);
@@ -213,7 +213,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         var unelected = ModeFingerprint(false);
         using var dir = new TempDirectory("squirix-follower-election-mode");
         await using var registry = await OpenRegistryAsync(dir, new FakeTimeProvider(), elected, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         var ballot = new ElectionVoteRequest("n3", 5UL, 0UL, 0UL);
         var before = await follower.GetStatusAsync(GroupId, cancellationToken);
 
@@ -239,7 +239,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-election-cancel-step");
         var hooks = new CancelOnMetaPublishing();
         await using var registry = await OpenRegistryAsync(dir, new FakeTimeProvider(), Fingerprint, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks }, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         using var caller = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         hooks.Arm(caller);
 
@@ -259,7 +259,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-election-cancel-before");
         await using var registry = await OpenRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         using var caller = new CancellationTokenSource();
         await caller.CancelAsync();
 

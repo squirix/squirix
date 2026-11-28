@@ -3,12 +3,10 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Logging;
@@ -16,6 +14,8 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -156,10 +156,10 @@ public sealed class ReplicaInconsistentRecordTests : ServerUnitTestBase
         using var meter = new Meter("test");
         var total = new long[1];
         using var listener = CountMetric(meter, total);
-        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
-                 .Callback(static (_, _, _, _, _) => ValueTask.FromException(new InvalidDataException("entry exceeds the payload limit")));
-        var applier = new ReplicaGroupApplier(cache.Instance(), NullLogger.Instance, "n1", "n1", new ReplicationMetrics(meter));
+        var cache = TestDoubles.CreateCacheWithEntryWriteOverloads<StoredValue>();
+        _ = cache.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
+                 .ReturnsAsync(static (_, _, _, _, _) => ValueTask.FromException(new InvalidDataException("entry exceeds the payload limit")));
+        var applier = new ReplicaGroupApplier(cache.Object, NullLogger.Instance, "n1", "n1", new ReplicationMetrics(meter));
         var valid = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance).PrepareSet(NewOperationId(), "cache", "k1", Entry("k1"), 1UL);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, valid.CanonicalPayload, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);

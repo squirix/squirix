@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
@@ -13,6 +12,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
@@ -25,10 +27,10 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
     public async Task FailedSnapshotDeleteRetriedOnNextRun(CancellationToken cancellationToken)
     {
         var passes = new ConcurrentQueue<bool>();
-        var readiness = new IRetentionCleanupReadinessStatusCreateExpectations();
-        _ = readiness.Setups.RecordWriteOutcome(Arg.Any<bool>()).Callback(passes.Enqueue);
+        var readiness = IRetentionCleanupReadinessStatus.Mock(MockBehavior.Strict);
+        _ = readiness.RecordWriteOutcome(Arg.Any<bool>()).Callback(passes.Enqueue);
         var fileOperations = new FailFirstDeleteFileOperations(SnapshotPath(1));
-        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance, readiness.Instance(), fileOperations);
+        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance, readiness.Object, fileOperations);
 
         CreateSnapshot(1);
         CreateSnapshot(2);
@@ -50,9 +52,9 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
     public async Task ManifestWithoutSnapshotKeepsAllSnapshots(CancellationToken cancellationToken)
     {
         var passes = new ConcurrentQueue<bool>();
-        var readiness = new IRetentionCleanupReadinessStatusCreateExpectations();
-        _ = readiness.Setups.RecordWriteOutcome(Arg.Any<bool>()).Callback(passes.Enqueue);
-        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance, readiness.Instance());
+        var readiness = IRetentionCleanupReadinessStatus.Mock(MockBehavior.Strict);
+        _ = readiness.RecordWriteOutcome(Arg.Any<bool>()).Callback(passes.Enqueue);
+        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance, readiness.Object);
 
         CreateSnapshot(1);
         CreateSnapshot(2);

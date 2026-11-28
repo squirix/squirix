@@ -16,6 +16,8 @@ using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaCommitterDoubles;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -274,10 +276,10 @@ public sealed class ReplicaCommitterRefusalTests : IsolatedStorageTestBase
     {
         var local = new ScriptedApplyCache(ApplyMode.Fail);
         local.Recover();
-        var faults = new IFollowerLogFaultHooksCreateExpectations();
-        _ = faults.Setups.OnFramesScheduling().Callback(static () => throw new ObjectDisposedException("hook"));
-        _ = faults.Setups.OnMetaPublishing();
-        var options = new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System, FaultHooks = faults.Instance() };
+        var faults = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+        _ = faults.OnFramesScheduling().Callback(static () => throw new ObjectDisposedException("hook"));
+        _ = faults.OnMetaPublishing();
+        var options = new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System, FaultHooks = faults.Object };
         await using var registry = await OpenRegistryAsync(options, NullLoggerFactory.Instance, cancellationToken);
         await using var committer = CreateCommitter(registry, local, NullLogger<ReplicaGroupCommitter>.Instance);
 

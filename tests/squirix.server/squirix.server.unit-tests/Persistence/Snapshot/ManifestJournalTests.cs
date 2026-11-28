@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
@@ -17,6 +16,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
@@ -85,14 +87,14 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
             recorder = new RollRecorder(store);
             await store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 5 }, cancellationToken);
             await using var journal = new SnapshotCutJournal(2, 5);
-            var writerExpectations = new ISnapshotWriterCreateExpectations();
-            _ = writerExpectations.Setups.AllocateIndex(Arg.Any<int>()).Callback(static publishedIndex => publishedIndex + 1);
-            _ = writerExpectations.Setups
+            var writerExpectations = ISnapshotWriter.Mock(MockBehavior.Strict);
+            _ = writerExpectations.AllocateIndex(Arg.Any<int>()).Returns(static publishedIndex => publishedIndex + 1);
+            _ = writerExpectations
                                   .WriteAsync(
                                        Arg.Any<int>(),
                                        Arg.Any<IReadOnlyList<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>>(),
                                        Arg.Any<IReadOnlyList<PersistedIdempotencyRecord>>(),
-                                       Arg.Any<CancellationToken>()).Callback(
+                                       Arg.Any<CancellationToken>()).ReturnsAsync(
                                        Bind.To<(RollOnClockTimeProvider Clock, bool RollDuringFileWrite, RollRecorder Recorder), Func<int,
                                            IReadOnlyList<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>, IReadOnlyList<PersistedIdempotencyRecord>, CancellationToken,
                                            ValueTask<string>>>(
@@ -109,7 +111,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
                                                return new ValueTask<string>(shared.Recorder.Committed.Task.ContinueWith(static _ => "snap-test-path", TaskScheduler.Default));
                                            }));
 
-            await SnapshotWithClockAsync(store, journal, writerExpectations.Instance(), clock, cancellationToken);
+            await SnapshotWithClockAsync(store, journal, writerExpectations.Object, clock, cancellationToken);
         }
 
         using var reopened = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
@@ -171,14 +173,14 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
 
     private static async Task SnapshotOnceAsync(Ledger store, IJournalCoordinator journal, CancellationToken cancellationToken)
     {
-        var writerExpectations = new ISnapshotWriterCreateExpectations();
-        _ = writerExpectations.Setups.AllocateIndex(Arg.Any<int>()).Callback(static publishedIndex => publishedIndex + 1);
-        _ = writerExpectations.Setups.WriteAsync(
+        var writerExpectations = ISnapshotWriter.Mock(MockBehavior.Strict);
+        _ = writerExpectations.AllocateIndex(Arg.Any<int>()).Returns(static publishedIndex => publishedIndex + 1);
+        _ = writerExpectations.WriteAsync(
             Arg.Any<int>(),
             Arg.Any<IReadOnlyList<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>>(),
             Arg.Any<IReadOnlyList<PersistedIdempotencyRecord>>(),
-            Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult("snap-test-path"));
-        await SnapshotOnceAsync(store, journal, writerExpectations.Instance(), cancellationToken);
+            Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult("snap-test-path"));
+        await SnapshotOnceAsync(store, journal, writerExpectations.Object, cancellationToken);
     }
 
     private static Task SnapshotOnceAsync(Ledger store, IJournalCoordinator journal, ISnapshotWriter writer, CancellationToken cancellationToken) =>
@@ -192,10 +194,10 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
         CancellationToken cancellationToken)
     {
         var opt = ServerJsonSerializer.Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
-        var captureExpectations = new ISnapshotEntryCaptureCreateExpectations();
-        _ = captureExpectations.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
-                               .ReturnValue(default);
-        var deps = new CoordinatorDependencies(captureExpectations.Instance(), writer, store, "test-node", NoOpSnapshotTelemetry.Instance);
+        var captureExpectations = ISnapshotEntryCapture.Mock(MockBehavior.Strict);
+        _ = captureExpectations.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+                               .ReturnsAsync(ValueTask.CompletedTask);
+        var deps = new CoordinatorDependencies(captureExpectations.Object, writer, store, "test-node", NoOpSnapshotTelemetry.Instance);
         _ = await new Coordinator(opt, journal, deps, timeProvider).SnapshotAsync(journal, cancellationToken).ConfigureAwait(false);
     }
 

@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -18,6 +17,9 @@ using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.LedGroupsTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
@@ -101,8 +103,8 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         clock.Advance(Ttl);
 
         // The read sees the expired entry, then a write of a new live value commits before the read asks the leader to expire it.
-        var inner = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
-        _ = inner.Setups.GetValueWithDeadlineAsync(CacheName, Key, Arg.Any<CancellationToken>()).Callback(
+        var inner = ILogicalNamespacedCache<StoredValue>.Mock(MockBehavior.Strict);
+        _ = inner.GetValueWithDeadlineAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(
             Bind.To<(ClientCache<StoredValue> Local, ReplicaGroupCommitter Committer), Func<string, string, CancellationToken, ValueTask<NodeCacheValueRead<StoredValue>>>>(
                 (local, committer),
                 static s => async (cacheName, key, token) =>
@@ -111,7 +113,7 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
                     await s.Committer.CommitSetAsync(NewOperationId(), cacheName, key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("w"), 1, null, Ttl), token);
                     return stale;
                 }));
-        var cache = new ReplicatedCache(inner.Instance(), LeadOwn(committer));
+        var cache = new ReplicatedCache(inner.Object, LeadOwn(committer));
 
         var read = await cache.GetValueAsync(CacheName, Key, cancellationToken);
 
@@ -161,7 +163,7 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         var local = new ClientCache<StoredValue>(physical, physical);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), local, decisionClock);
         await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
-        await using var readers = new ReplicaGroupCommitters([committer], committer.GroupId, new INodeLocatorCreateExpectations().Instance(), readerClock);
+        await using var readers = new ReplicaGroupCommitters([committer], committer.GroupId, INodeLocator.Mock(MockBehavior.Strict).Object, readerClock);
         var cache = new ReplicatedCache(local, readers);
 
         var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<StoredValue>?>(cache.GetEntryAsync(CacheName, Key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);

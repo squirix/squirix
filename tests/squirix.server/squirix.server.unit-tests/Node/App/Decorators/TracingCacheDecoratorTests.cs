@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App.Decorators;
@@ -13,6 +12,9 @@ using Squirix.Server.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
@@ -40,14 +42,14 @@ public sealed class TracingCacheDecoratorTests
                 spans.Add(activity);
         };
         ActivitySource.AddActivityListener(listener);
-        var innerExpectations = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = innerExpectations.Setups.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                             .ReturnValue(ValueTask.FromResult(new NodeCacheValueResult<string>(false, null)));
-        _ = innerExpectations.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                             .ReturnValue(ValueTask.CompletedTask);
-        _ = innerExpectations.Setups.AddOrGetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                             .ReturnValue(ValueTask.FromResult(new NodeCacheAddOrGetResult<string>(false, new NodeCacheValueResult<string>(true, "existing"))));
-        var cache = new TracingCacheDecorator<string>(innerExpectations.Instance(), nodeId);
+        var innerExpectations = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = innerExpectations.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                             .ReturnsAsync(ValueTask.FromResult(new NodeCacheValueResult<string>(false, null)));
+        _ = innerExpectations.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                             .ReturnsAsync(ValueTask.CompletedTask);
+        _ = innerExpectations.AddOrGetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                             .ReturnsAsync(ValueTask.FromResult(new NodeCacheAddOrGetResult<string>(false, new NodeCacheValueResult<string>(true, "existing"))));
+        var cache = new TracingCacheDecorator<string>(innerExpectations.Object, nodeId);
 
         _ = await cache.GetValueAsync("c", "k", cancellationToken);
         await cache.SetEntryAsync("op", "c", "k", new NodeCacheEntry<string>("v"), cancellationToken);
@@ -73,12 +75,12 @@ public sealed class TracingCacheDecoratorTests
     public async Task ResultsAndFaultsPassThrough(CancellationToken cancellationToken)
     {
         var failure = new InvalidOperationException("set failed");
-        var innerExpectations = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = innerExpectations.Setups.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                             .ReturnValue(ValueTask.FromResult(new NodeCacheValueResult<string>(true, "v")));
-        _ = innerExpectations.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                             .Callback((_, _, _, _, _) => ValueTask.FromException(failure));
-        var cache = new TracingCacheDecorator<string>(innerExpectations.Instance(), "node");
+        var innerExpectations = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = innerExpectations.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                             .ReturnsAsync(ValueTask.FromResult(new NodeCacheValueResult<string>(true, "v")));
+        _ = innerExpectations.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                             .ReturnsAsync((_, _, _, _, _) => ValueTask.FromException(failure));
+        var cache = new TracingCacheDecorator<string>(innerExpectations.Object, "node");
 
         var result = await cache.GetValueAsync("c", "k", cancellationToken);
         var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(cache.SetEntryAsync("op", "c", "k", new NodeCacheEntry<string>("v"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);

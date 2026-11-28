@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -12,6 +11,9 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
@@ -52,23 +54,23 @@ public sealed class CacheQuotaDecoratorTests : DisposableServerUnitTestBase
 
     private static ILogicalNamespacedCache<string> CreateThrowingInner()
     {
-        var expectations = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = expectations.Setups.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                        .Callback(static (_, _, _) => ValueTask.FromException<NodeCacheEntry<string>?>(new JournalCapacityExceededException()));
-        _ = expectations.Setups.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                        .Callback(static (_, _, _) => ValueTask.FromException<NodeCacheValueResult<string>>(new JournalCapacityExceededException()));
-        _ = expectations.Setups.RemoveAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                        .Callback(static (_, _, _, _) => ValueTask.FromException<bool>(new JournalCapacityExceededException()));
-        _ = expectations.Setups.RemoveExpirationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                        .Callback(static (_, _, _, _) => ValueTask.FromException<bool>(new JournalCapacityExceededException()));
-        _ = expectations.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                        .Callback(static (_, _, _, _, _) => ValueTask.FromException(new JournalCapacityExceededException()));
-        _ = expectations.Setups.TouchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
-                        .Callback(static (_, _, _, _, _) => ValueTask.FromException<bool>(new JournalCapacityExceededException()));
-        _ = expectations.Setups.TryAddEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                        .Callback(static (_, _, _, _, _) => ValueTask.FromException<bool>(new JournalCapacityExceededException()));
-        _ = expectations.Setups.UpdateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
-                        .Callback(static (_, _, _, _, _) => ValueTask.FromException<bool>(new JournalCapacityExceededException()));
-        return expectations.Instance();
+        var expectations = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = expectations.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync(static (_, _, _) => ValueTask.FromException<NodeCacheEntry<string>?>(new JournalCapacityExceededException()));
+        _ = expectations.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync(static (_, _, _) => ValueTask.FromException<NodeCacheValueResult<string>>(new JournalCapacityExceededException()));
+        _ = expectations.RemoveAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync(static (_, _, _, _) => ValueTask.FromException<bool>(new JournalCapacityExceededException()));
+        _ = expectations.RemoveExpirationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync(static (_, _, _, _) => ValueTask.FromException<bool>(new JournalCapacityExceededException()));
+        _ = expectations.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync(static (_, _, _, _, _) => ValueTask.FromException(new JournalCapacityExceededException()));
+        _ = expectations.TouchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync(static (_, _, _, _, _) => ValueTask.FromException<bool>(new JournalCapacityExceededException()));
+        _ = expectations.TryAddEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync(static (_, _, _, _, _) => ValueTask.FromException<bool>(new JournalCapacityExceededException()));
+        _ = expectations.UpdateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync(static (_, _, _, _, _) => ValueTask.FromException<bool>(new JournalCapacityExceededException()));
+        return expectations.Object;
     }
 }

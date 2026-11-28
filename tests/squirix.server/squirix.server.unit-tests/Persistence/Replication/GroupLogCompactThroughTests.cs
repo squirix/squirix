@@ -12,6 +12,8 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -32,17 +34,17 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-compact-through-fault");
         var armed = false;
-        var hooks = new IFollowerLogFaultHooksCreateExpectations();
-        _ = hooks.Setups.OnFrameWritten();
-        _ = hooks.Setups.OnFramesScheduling();
-        _ = hooks.Setups.OnCommitAdvanced();
-        _ = hooks.Setups.OnBeforeMemoryApply();
-        _ = hooks.Setups.OnFlushed().Callback(() => FailIfArmed(armed));
-        _ = hooks.Setups.OnMetaPublishing();
-        _ = hooks.Setups.OnSnapshotPublishing();
+        var hooks = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+        _ = hooks.OnFrameWritten();
+        _ = hooks.OnFramesScheduling();
+        _ = hooks.OnCommitAdvanced();
+        _ = hooks.OnBeforeMemoryApply();
+        _ = hooks.OnFlushed().Callback(() => FailIfArmed(armed));
+        _ = hooks.OnMetaPublishing();
+        _ = hooks.OnSnapshotPublishing();
         await using (var log = await SeedAsync(
                          dir,
-                         new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks.Instance() },
+                         new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks.Object },
                          cancellationToken))
         {
             armed = true;
@@ -109,15 +111,15 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-prepared-compaction-recovery");
         var flushToFail = 0;
-        var hooks = new IFollowerLogFaultHooksCreateExpectations();
-        _ = hooks.Setups.OnFrameWritten();
-        _ = hooks.Setups.OnFramesScheduling();
-        _ = hooks.Setups.OnCommitAdvanced();
-        _ = hooks.Setups.OnBeforeMemoryApply();
-        _ = hooks.Setups.OnFlushed().Callback(() => FailIfArmed(flushToFail != 0 && --flushToFail == 0));
-        _ = hooks.Setups.OnMetaPublishing();
-        _ = hooks.Setups.OnSnapshotPublishing();
-        var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks.Instance() };
+        var hooks = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+        _ = hooks.OnFrameWritten();
+        _ = hooks.OnFramesScheduling();
+        _ = hooks.OnCommitAdvanced();
+        _ = hooks.OnBeforeMemoryApply();
+        _ = hooks.OnFlushed().Callback(() => FailIfArmed(flushToFail != 0 && --flushToFail == 0));
+        _ = hooks.OnMetaPublishing();
+        _ = hooks.OnSnapshotPublishing();
+        var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks.Object };
         var log = await SeedAsync(dir, options, cancellationToken);
         GroupSnapshotCheckpointStore.PreparedSnapshot? prepared = null;
         try

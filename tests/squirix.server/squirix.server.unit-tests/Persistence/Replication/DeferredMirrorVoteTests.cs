@@ -14,6 +14,8 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -425,14 +427,14 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
 
         internal MirrorHold()
         {
-            var expectations = new IFollowerLogFaultHooksCreateExpectations();
-            _ = expectations.Setups.OnFrameWritten();
-            _ = expectations.Setups.OnFramesScheduling();
-            _ = expectations.Setups.OnFlushed();
-            _ = expectations.Setups.OnCommitAdvanced();
-            _ = expectations.Setups.OnBeforeMemoryApply();
-            _ = expectations.Setups.OnMetaPublishing().Callback(OnPublish);
-            Hooks = expectations.Instance();
+            var expectations = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+            _ = expectations.OnFrameWritten();
+            _ = expectations.OnFramesScheduling();
+            _ = expectations.OnFlushed();
+            _ = expectations.OnCommitAdvanced();
+            _ = expectations.OnBeforeMemoryApply();
+            _ = expectations.OnMetaPublishing().Callback(OnPublish);
+            Hooks = expectations.Object;
         }
 
         internal bool Finished => Volatile.Read(ref _finished) != 0;

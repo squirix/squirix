@@ -10,6 +10,8 @@ using Squirix.Server.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Observability;
 
@@ -52,16 +54,16 @@ public sealed class ItemsGaugeReporterServiceTests
 
     private static ILocalCacheStats CreateFaultingStats()
     {
-        var expectations = new ILocalCacheStatsCreateExpectations();
-        _ = expectations.Setups.EntryCount.Gets().Throws(new InvalidOperationException("stats-down"));
-        return expectations.Instance();
+        var expectations = ILocalCacheStats.Mock(MockBehavior.Strict);
+        _ = expectations.EntryCount.Throws(new InvalidOperationException("stats-down"));
+        return expectations.Object;
     }
 
     private static ILocalCacheStats CreateFixedStats(int entryCount)
     {
-        var expectations = new ILocalCacheStatsCreateExpectations();
-        _ = expectations.Setups.EntryCount.Gets().ReturnValue(entryCount);
-        return expectations.Instance();
+        var expectations = ILocalCacheStats.Mock(MockBehavior.Strict);
+        _ = expectations.EntryCount.Returns(entryCount);
+        return expectations.Object;
     }
 
     private static MeterListener CreateListener(MeasurementSink sink)

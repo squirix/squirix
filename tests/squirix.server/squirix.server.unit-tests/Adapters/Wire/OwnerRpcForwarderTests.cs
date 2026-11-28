@@ -5,7 +5,6 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
@@ -20,6 +19,9 @@ using Squirix.Transport.Wire.Codec;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Adapters.Wire;
 
@@ -169,9 +171,9 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
         await disposedPolicy.DisposeAsync();
         var request = new GetValueAsyncRequest { CacheName = "c", Key = "k" };
         var policyDisposed = CreateForwarder(new CapturingCallInvoker(), disposedPolicy);
-        var poolExpectations = new IServerClientPoolCreateExpectations();
-        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).Callback(static _ => throw new ObjectDisposedException("pool"));
-        var lookupDisposed = new OwnerRpcForwarder(poolExpectations.Instance(), CreateGate([], Decision.Accepted()), CreateClientIdResolver(), RingAgreements.Create());
+        var poolExpectations = IServerClientPool.Mock(MockBehavior.Strict);
+        _ = poolExpectations.ForNode(Arg.Any<string>()).Returns(static _ => throw new ObjectDisposedException("pool"));
+        var lookupDisposed = new OwnerRpcForwarder(poolExpectations.Object, CreateGate([], Decision.Accepted()), CreateClientIdResolver(), RingAgreements.Create());
 
         var fromPolicy = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(policyDisposed.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var fromLookup = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(lookupDisposed.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -364,29 +366,29 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
 
     private static IBackpressureClientIdResolver CreateClientIdResolver()
     {
-        var expectations = new IBackpressureClientIdResolverCreateExpectations();
-        _ = expectations.Setups.Resolve().ReturnValue(ClientId);
-        return expectations.Instance();
+        var expectations = IBackpressureClientIdResolver.Mock(MockBehavior.Strict);
+        _ = expectations.Resolve().Returns(ClientId);
+        return expectations.Object;
     }
 
     private static IBackpressureGate CreateGate(List<(string Transport, string Operation, string ClientId)> seen, Decision decision)
     {
-        var expectations = new IBackpressureGateCreateExpectations();
-        _ = expectations.Setups.AcquireAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Callback((transport, operation, clientId, _) =>
+        var expectations = IBackpressureGate.Mock(MockBehavior.Strict);
+        _ = expectations.AcquireAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).ReturnsAsync((transport, operation, clientId, _) =>
         {
             seen.Add((transport, operation, clientId));
             return ValueTask.FromResult((decision, Lease.Empty));
         });
-        return expectations.Instance();
+        return expectations.Object;
     }
 
     private OwnerRpcForwarder CreateForwarder(CapturingCallInvoker invoker, IServerCallPolicy? policy = null, IBackpressureGate? gate = null, RingAgreement? agreement = null)
     {
-        var poolExpectations = new IServerClientPoolCreateExpectations();
+        var poolExpectations = IServerClientPool.Mock(MockBehavior.Strict);
         var callPolicy = policy ?? CreatePolicy();
-        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(invoker);
-        _ = poolExpectations.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(callPolicy);
-        return new OwnerRpcForwarder(poolExpectations.Instance(), gate ?? CreateGate([], Decision.Accepted()), CreateClientIdResolver(), agreement ?? RingAgreements.Create());
+        _ = poolExpectations.ForNode(Arg.Any<string>()).Returns(invoker);
+        _ = poolExpectations.PolicyFor(Arg.Any<string>()).Returns(callPolicy);
+        return new OwnerRpcForwarder(poolExpectations.Object, gate ?? CreateGate([], Decision.Accepted()), CreateClientIdResolver(), agreement ?? RingAgreements.Create());
     }
 
     private ServerCallPolicy CreatePolicy() => new(

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
@@ -13,6 +12,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -44,10 +46,10 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
     public async Task FailedPreparePropagatesFault(CancellationToken cancellationToken)
     {
         var fault = new InvalidOperationException("local read failed");
-        var faulting = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
-        _ = faulting.Setups.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                    .ReturnValue(ValueTask.FromException<NodeCacheEntry<StoredValue>?>(fault));
-        var factory = new ReplicaMutationFactory(faulting.Instance(), "g1", 1UL, TimeProvider.System, NullLogger.Instance);
+        var faulting = ILogicalNamespacedCache<StoredValue>.Mock(MockBehavior.Strict);
+        _ = faulting.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                    .ReturnsAsync(ValueTask.FromException<NodeCacheEntry<StoredValue>?>(fault));
+        var factory = new ReplicaMutationFactory(faulting.Object, "g1", 1UL, TimeProvider.System, NullLogger.Instance);
 
         var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(factory.PrepareRemoveAsync("op-1", "cache", "k", 42UL, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 

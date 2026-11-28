@@ -4,7 +4,6 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.ProtocolModel;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
@@ -12,6 +11,9 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -97,12 +99,12 @@ internal static class ConformanceTestKit
         int replicaCount = ReplicaCount,
         ReplicaRecoveredTail? recoveredTail = null)
     {
-        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
-        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        var expectations = IReplicaCommitFaultHooks.Mock(MockBehavior.Strict);
+        _ = expectations.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
         var options = recoveredTail == null
             ? new ReplicaCommitCoordinatorOptions(replicaCount, 0, 0, maxInFlight, pipeline.LeaderSlot)
             : new ReplicaCommitCoordinatorOptions(replicaCount, recoveredTail.LastIndex, recoveredTail.FirstIndex - 1, maxInFlight, pipeline.LeaderSlot);
-        return new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), new GroupIdempotencyState(maxInFlight + 2, TimeSpan.MaxValue, TimeProvider.System), null, recoveredTail)
+        return new ReplicaCommitCoordinator(options, pipeline, expectations.Object, new GroupIdempotencyState(maxInFlight + 2, TimeSpan.MaxValue, TimeProvider.System), null, recoveredTail)
         {
             ObserveTimeProvider = TimeProvider.System,
             BudgetTimeProvider = budgetClock,
@@ -126,9 +128,9 @@ internal static class ConformanceTestKit
         for (var i = 0; i < entries.Length; i++)
             entries[i] = new FollowerLogEntry(indexes[i], term, ReadOnlyMemory<byte>.Empty);
 
-        var rebuilder = new IReplicaTailRebuilderCreateExpectations();
-        _ = rebuilder.Setups.Rebuild(Arg.Any<FollowerLogEntry>()).Callback(static entry => CreateMutation(entry.LogIndex, entry.Term));
-        return new ReplicaRecoveredTail(entries, currentTerm, rebuilder.Instance());
+        var rebuilder = IReplicaTailRebuilder.Mock(MockBehavior.Strict);
+        _ = rebuilder.Rebuild(Arg.Any<FollowerLogEntry>()).Returns(static entry => CreateMutation(entry.LogIndex, entry.Term));
+        return new ReplicaRecoveredTail(entries, currentTerm, rebuilder.Object);
     }
 
     /// <summary>Tells the coordinator which followers held the recovered tail when the leader started; they are the copies of a commit inside the tail.</summary>

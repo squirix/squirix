@@ -1,21 +1,23 @@
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster.Replication;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Support;
 
-/// <summary>Rocks-backed replica commit fault hooks shared by replication tests.</summary>
+/// <summary>Replica commit fault hooks shared by replication tests.</summary>
 internal static class ReplicaFaultHooks
 {
     /// <summary>Creates fault hooks that honor their token, as any budget-aware step would: a canceled token faults the stage.</summary>
     internal static IReplicaCommitFaultHooks CreateCancellationHonoring()
     {
-        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
-        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
-                        .Callback(static (_, _, cancellationToken) =>
+        var expectations = IReplicaCommitFaultHooks.Mock(MockBehavior.Strict);
+        _ = expectations.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync(static (_, _, cancellationToken) =>
                             cancellationToken.IsCancellationRequested ? ValueTask.FromCanceled(cancellationToken) : ValueTask.CompletedTask);
-        return expectations.Instance();
+        return expectations.Object;
     }
 
     /// <summary>Creates fault hooks that signal when a commit reaches a stage and, when given a release, hold it there until the release completes.</summary>
@@ -25,9 +27,9 @@ internal static class ReplicaFaultHooks
     /// <returns>The hooks.</returns>
     internal static IReplicaCommitFaultHooks CreateAtStage(ReplicaCommitStage stage, TaskCompletionSource entered, Task? release = null)
     {
-        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
-        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
-                        .Callback((reached, _, _) =>
+        var expectations = IReplicaCommitFaultHooks.Mock(MockBehavior.Strict);
+        _ = expectations.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync((reached, _, _) =>
                         {
                             if (reached != stage)
                                 return ValueTask.CompletedTask;
@@ -35,15 +37,15 @@ internal static class ReplicaFaultHooks
                             _ = entered.TrySetResult();
                             return release == null ? ValueTask.CompletedTask : new ValueTask(release);
                         });
-        return expectations.Instance();
+        return expectations.Object;
     }
 
     /// <summary>Creates fault hooks that never interfere with any commit stage.</summary>
     internal static IReplicaCommitFaultHooks CreateNoOp()
     {
-        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
-        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
-                        .ReturnValue(ValueTask.CompletedTask);
-        return expectations.Instance();
+        var expectations = IReplicaCommitFaultHooks.Mock(MockBehavior.Strict);
+        _ = expectations.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync(ValueTask.CompletedTask);
+        return expectations.Object;
     }
 }

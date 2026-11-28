@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
@@ -13,6 +12,9 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaPipelineTestKit;
 
@@ -285,15 +287,15 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
 
     private static ReplicaGroupCommitPipeline CreateRecordingPipeline(Task<FollowerLogAppendResult> answer, ReplicaLocalAppends appends, FollowerLogReadiness readiness = FollowerLogReadiness.Ready, bool? disposed = null)
     {
-        var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.AppendLeaderAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<Action>(), Arg.Any<CancellationToken>()).ReturnValue(answer);
-        _ = log.Setups.Readiness.Gets().ReturnValue(readiness);
+        var log = IFollowerLog.Mock(MockBehavior.Strict);
+        _ = log.AppendLeaderAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<Action>(), Arg.Any<CancellationToken>()).ReturnsAsync(answer);
+        _ = log.Readiness.Returns(readiness);
         if (disposed is { } isDisposed)
-            _ = log.Setups.IsDisposed.Gets().ReturnValue(isDisposed);
+            _ = log.IsDisposed.Returns(isDisposed);
 
         var status = default(FollowerLogStatus);
         var lagging = new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance);
-        return new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log.Instance(), [], (GroupId, 0), lagging, in status, 1)
+        return new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log.Object, [], (GroupId, 0), lagging, in status, 1)
         {
             LocalAppends = appends,
             AllowEarlyReplication = true,

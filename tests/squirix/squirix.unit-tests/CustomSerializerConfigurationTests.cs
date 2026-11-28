@@ -6,6 +6,7 @@ using Squirix.Client;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
 
 namespace Squirix.UnitTests;
 
@@ -33,7 +34,7 @@ public sealed class CustomSerializerConfigurationTests
     [Test]
     public async Task SerializerHasPublicSetterForConfigure()
     {
-        var custom = new ISquirixSerializerCreateExpectations().Instance();
+        var custom = ISquirixSerializer.Mock(MockBehavior.Strict).Object;
         var options = new SquirixClientOptions
         {
             Serializer = custom,

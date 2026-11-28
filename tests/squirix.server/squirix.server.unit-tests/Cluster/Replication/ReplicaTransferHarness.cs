@@ -92,7 +92,7 @@ internal sealed class ReplicaTransferHarness : IAsyncDisposable
         var logger = new EventRecordingLogger();
         var receiver = new ReplicaTransferReceiver(
             registry,
-            RocksDoubles.CreateReplicaMembers(),
+            TestDoubles.CreateReplicaMembers(),
             sink,
             options ?? new ReplicaTransferOptions(),
             clock,

@@ -15,6 +15,7 @@ using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaCommitterDoubles;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -85,12 +86,12 @@ public sealed class ReplicaCommitterRecoveryOrderTests : IsolatedStorageTestBase
         var recovery = RecoveryLifecycle.Recovering();
         await using var registry = await OpenRegistryAsync(cancellationToken);
         await using var committer = CreateCommitter(registry, local, recovery);
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
+        var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
 
         var write = committer.CommitTryAddAsync(Guid.NewGuid().ToString("N"), "cache", "k1", Entry(), cancellationToken);
         await recovery.Requested.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-        var outcome = await committer.CompactOwnedLogAsync(new ReplicaLogCompactionPolicy(0, 1), durability.Instance(), cancellationToken)
+        var outcome = await committer.CompactOwnedLogAsync(new ReplicaLogCompactionPolicy(0, 1), durability.Object, cancellationToken)
                                      .WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(outcome).IsEqualTo(ReplicaLogCompactionOutcome.NotReady);

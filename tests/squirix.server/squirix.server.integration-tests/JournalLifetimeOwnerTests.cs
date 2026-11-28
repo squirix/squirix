@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -17,6 +16,9 @@ using Squirix.Server.TestKit.Replication;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.IntegrationTests;
 
@@ -148,34 +150,33 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
         /// <remarks>The node stays idle: it neither mutates nor cuts a snapshot, so the snapshot barriers are not set up and no append is raised.</remarks>
         internal IJournalCoordinator CreateJournal(IJournalCoordinator journal)
         {
-            var expectations = new IJournalCoordinatorCreateExpectations();
-            var setups = expectations.Setups;
-            _ = setups.AppendedBytes.Gets().Callback(() => journal.AppendedBytes);
-            _ = setups.AppendedOps.Gets().Callback(() => journal.AppendedOps);
-            _ = setups.CurrentSegmentIndex.Gets().Callback(() => journal.CurrentSegmentIndex);
-            _ = setups.HighWaterBytes.Gets().Callback(() => journal.HighWaterBytes);
-            _ = setups.InFlightApplyGate.Gets().Callback(() => journal.InFlightApplyGate);
-            _ = setups.IsJournalGroupCommitEnabled.Gets().Callback(() => journal.IsJournalGroupCommitEnabled);
-            _ = setups.MaxBytes.Gets().Callback(() => journal.MaxBytes);
-            _ = setups.NextSequence.Gets().Callback(() => journal.NextSequence);
-            _ = setups.RecentAppendLatencyMs.Gets().Callback(() => journal.RecentAppendLatencyMs);
-            _ = setups.UsedBytes.Gets().Callback(() => journal.UsedBytes);
-            _ = setups.AppendPutAsync(Arg.Any<JournalAppendContext>(), Arg.Any<CacheKey>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
-               .Callback(journal.AppendPutAsync);
-            _ = setups.AppendRemoveAsync(Arg.Any<JournalAppendContext>(), Arg.Any<CacheKey>(), Arg.Any<CancellationToken>())
-               .Callback(journal.AppendRemoveAsync);
-            _ = setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).Callback(journal.AwaitDurabilityCommitAsync);
-            _ = setups.FailJournalPipeline(Arg.Any<Exception>()).Callback(journal.FailJournalPipeline);
-            _ = setups.GetJournalThreadFailure().Callback(journal.GetJournalThreadFailure);
-            _ = setups.WaitForStartupAsync(Arg.Any<CancellationToken>()).Callback(journal.WaitForStartupAsync);
-            _ = setups.DisposeAsync().Callback(async () =>
+            var expectations = IJournalCoordinator.Mock(MockBehavior.Strict);
+            _ = expectations.AppendedBytes.Returns(() => journal.AppendedBytes);
+            _ = expectations.AppendedOps.Returns(() => journal.AppendedOps);
+            _ = expectations.CurrentSegmentIndex.Returns(() => journal.CurrentSegmentIndex);
+            _ = expectations.HighWaterBytes.Returns(() => journal.HighWaterBytes);
+            _ = expectations.InFlightApplyGate.Returns(() => journal.InFlightApplyGate);
+            _ = expectations.IsJournalGroupCommitEnabled.Returns(() => journal.IsJournalGroupCommitEnabled);
+            _ = expectations.MaxBytes.Returns(() => journal.MaxBytes);
+            _ = expectations.NextSequence.Returns(() => journal.NextSequence);
+            _ = expectations.RecentAppendLatencyMs.Returns(() => journal.RecentAppendLatencyMs);
+            _ = expectations.UsedBytes.Returns(() => journal.UsedBytes);
+            _ = expectations.AppendPutAsync(Arg.Any<JournalAppendContext>(), Arg.Any<CacheKey>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+                            .ReturnsAsync(journal.AppendPutAsync);
+            _ = expectations.AppendRemoveAsync(Arg.Any<JournalAppendContext>(), Arg.Any<CacheKey>(), Arg.Any<CancellationToken>())
+                            .ReturnsAsync(journal.AppendRemoveAsync);
+            _ = expectations.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnsAsync(journal.AwaitDurabilityCommitAsync);
+            _ = expectations.FailJournalPipeline(Arg.Any<Exception>()).Callback(journal.FailJournalPipeline);
+            _ = expectations.GetJournalThreadFailure().Returns(journal.GetJournalThreadFailure);
+            _ = expectations.WaitForStartupAsync(Arg.Any<CancellationToken>()).ReturnsAsync(journal.WaitForStartupAsync);
+            _ = expectations.DisposeAsync().ReturnsAsync(async () =>
             {
                 await journal.DisposeAsync();
                 _ = Interlocked.Increment(ref _count);
                 throw new TimeoutException("journal I/O thread is still alive after shutdown; writer, ring, and gates are leaked.");
             });
 
-            return expectations.Instance();
+            return expectations.Object;
         }
     }
 

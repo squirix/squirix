@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
@@ -15,6 +14,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Cluster.Replication.ElectionTestDoubles;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
@@ -374,11 +376,11 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
     /// <param name="answers">Receives the answer of each voter: the pre-vote answer, or the vote answer when the pre-vote is granted.</param>
     /// <param name="preVoteGranted">Whether every pre-vote is granted without reaching the voter, as one answered before the committed entry arrived.</param>
     /// <returns>The gateway.</returns>
-    private static IReplicaVoteGateway VoteGateway(FollowerLog voterOne, FollowerLog voterTwo, ConcurrentDictionary<string, FollowerLogVoteResult> answers, bool preVoteGranted)
+    private static ReplicaVoteGatewayWithDefaults VoteGateway(FollowerLog voterOne, FollowerLog voterTwo, ConcurrentDictionary<string, FollowerLogVoteResult> answers, bool preVoteGranted)
     {
-        var expectations = new IReplicaVoteGatewayCreateExpectations();
-        _ = expectations.Setups.PreVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
-                        .Callback(async (nodeId, header, lastIndex, lastTerm, token) =>
+        var expectations = IReplicaVoteGateway.Mock(MockBehavior.Strict);
+        _ = expectations.PreVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync(async (nodeId, header, lastIndex, lastTerm, token) =>
                         {
                             if (preVoteGranted)
                                 return new FollowerLogVoteResult(true, string.Empty, 3UL);
@@ -390,8 +392,8 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
                         });
         if (preVoteGranted)
         {
-            _ = expectations.Setups.RequestVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
-                            .Callback(async (nodeId, header, lastIndex, lastTerm, token) =>
+            _ = expectations.RequestVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
+                            .ReturnsAsync(async (nodeId, header, lastIndex, lastTerm, token) =>
                             {
                                 var voter = string.Equals(nodeId, "n2", StringComparison.Ordinal) ? voterOne : voterTwo;
                                 var answer = await voter.RequestVoteAsync(new ElectionVoteRequest(header.SenderNodeId, header.Term, lastIndex, lastTerm), token);
@@ -400,7 +402,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
                             });
         }
 
-        return expectations.Instance();
+        return new ReplicaVoteGatewayWithDefaults(expectations.Object);
     }
 
     /// <summary>Builds an append request for a single entry.</summary>

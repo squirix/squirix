@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -10,6 +9,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -55,10 +57,10 @@ public sealed class ReplicaLeaderTenureTests : ServerUnitTestBase
 
     private static IFollowerLog NotReadyLog(bool disposed)
     {
-        var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.AppendAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<CancellationToken>())
-               .ReturnValue(Task.FromResult(new FollowerLogAppendResult(false, FollowerLogRefusal.NotReady, 0UL, 0UL)));
-        _ = log.Setups.IsDisposed.Gets().ReturnValue(disposed);
-        return log.Instance();
+        var log = IFollowerLog.Mock(MockBehavior.Strict);
+        _ = log.AppendAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<CancellationToken>())
+               .ReturnsAsync(Task.FromResult(new FollowerLogAppendResult(false, FollowerLogRefusal.NotReady, 0UL, 0UL)));
+        _ = log.IsDisposed.Returns(disposed);
+        return log.Object;
     }
 }

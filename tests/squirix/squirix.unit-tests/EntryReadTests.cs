@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Internal.Cluster.Reliability;
@@ -12,6 +11,9 @@ using Squirix.Transport.Wire.Codec;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.UnitTests;
 
@@ -48,9 +50,9 @@ public sealed class EntryReadTests
         var release = new TaskCompletionSource<WireMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var client = new BinaryCacheClient(new Uri("https://localhost"), null, null, new EntryTransport(release.Task).InvokeAsync);
         await using var policy = new CallPolicy(clock, TimeSpan.FromHours(2));
-        var expectations = new IClientPoolCreateExpectations();
-        _ = expectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(new NodeClient(client, policy));
-        var cache = new RemoteCache<string>("demo", new EndpointFailover(["node-a"], "node-a", TimeSpan.FromHours(1), clock), expectations.Instance(), RemoteClientSessionFactory.CreateSerializer());
+        var expectations = IClientPool.Mock(MockBehavior.Strict);
+        _ = expectations.ForNode(Arg.Any<string>()).Returns(new NodeClient(client, policy));
+        var cache = new RemoteCache<string>("demo", new EndpointFailover(["node-a"], "node-a", TimeSpan.FromHours(1), clock), expectations.Object, RemoteClientSessionFactory.CreateSerializer());
 
         var operation = cache.GetEntryAsync("key-a", CancellationToken.None);
         var pending = !operation.IsCompleted;
