@@ -75,7 +75,8 @@ public sealed class LeaderStopTests
                 var follower = Array.Find(FailoverSteps.ThreeNodes, id => !string.Equals(id, leader.NodeId, StringComparison.Ordinal) && !string.Equals(id, former, StringComparison.Ordinal))
                                ?? FailoverSteps.Except(FailoverSteps.ThreeNodes, leader.NodeId)[0];
                 var majority = FailoverSteps.Except(FailoverSteps.ThreeNodes, follower);
-                var second = await FailoverFault.RunAsync(scene, majority, "second", (follower, $"follower {follower} stops", null), cancellationToken);
+                const bool retryPendingReplicaApply = true;
+                var second = await FailoverFault.RunAsync(scene, majority, "second", (follower, $"follower {follower} stops", null), cancellationToken, retryPendingReplicaApply);
                 _ = await Assert.That(second.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(timeline.Dump() + Eventually.Dump(second.Attempts));
 
                 await cluster.RestartNodeAsync(follower, cancellationToken);
