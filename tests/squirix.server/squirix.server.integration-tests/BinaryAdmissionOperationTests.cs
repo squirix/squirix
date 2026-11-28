@@ -1,9 +1,11 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Backpressure;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Transport.Binary;
@@ -86,6 +88,48 @@ public sealed class BinaryAdmissionOperationTests : NodeIntegrationTestBase
         var hostGate = host.GetRequiredService<IBackpressureGate>();
         ExecutionContext.Run(flow!, _ => inherited = InboundAdmissionScope.IsAdmitted(hostGate), null);
         _ = await Assert.That(inherited).IsFalse();
+    }
+
+    /// <summary>The cache hook sees the request deadline and the enclosing trace ends after that deadline scope exits.</summary>
+    /// <param name="cancellationToken">Test cancellation token.</param>
+    [Test]
+    public async Task RequestDeadlineEndsBeforeServerActivity(CancellationToken cancellationToken)
+    {
+        var marker = new object();
+        var after = new TaskCompletionSource<ServerDeadlineBudget?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = static source => string.Equals(source.Name, ActivitySourceHolder.SourceName, StringComparison.Ordinal),
+            Sample = static (ref _) => ActivitySamplingResult.AllData,
+            ActivityStopped = activity =>
+            {
+                if (ReferenceEquals(activity.GetCustomProperty(nameof(RequestDeadlineEndsBeforeServerActivity)), marker))
+                    after.SetResult(ServerRpcDeadlineContext.CurrentBudget);
+            },
+        };
+        ActivitySource.AddActivityListener(listener);
+        var inside = new TaskCompletionSource<ServerDeadlineBudget?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var options = new IntegrationStartOptions
+        {
+            ServicesConfigure = services => services.AddSingleton(new BinaryCallObserver(_ =>
+            {
+                Activity.Current!.SetCustomProperty(nameof(RequestDeadlineEndsBeforeServerActivity), marker);
+                inside.SetResult(ServerRpcDeadlineContext.CurrentBudget);
+            })),
+        };
+        const string node = "dispatch-deadline";
+        await using var cluster = await StartClusterAsync(node, options, cancellationToken);
+        using var channel = CreateBinaryChannel(cluster[node].Uri);
+        var response = await channel.ExchangeAsync(
+            BinaryOperation.GetValue,
+            new GetValueAsyncRequest { CacheName = "default", Key = "missing" },
+            GetValueAsyncResponse.Parser,
+            null,
+            cancellationToken);
+
+        _ = await Assert.That(response.Found).IsFalse();
+        _ = await Assert.That(await inside.Task.WaitAsync(cancellationToken)).IsNotNull();
+        _ = await Assert.That(await after.Task.WaitAsync(cancellationToken)).IsNull();
     }
 
     private sealed class RejectingGate : IBackpressureGate

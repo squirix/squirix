@@ -500,15 +500,18 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
 
         private async Task ReadAsync()
         {
-            var buffer = ArrayPool<byte>.Shared.Rent(Frames.MaxBatchBytes);
+            byte[]? buffer = null;
             try
             {
+                // SslStream can wait for input before the session rents its first reply buffer.
+                _ = await _tls.ReadAsync(Memory<byte>.Empty, _stopToken).ConfigureAwait(false);
+                buffer = ArrayPool<byte>.Shared.Rent(Frames.MaxBatchBytes);
                 var buffered = 0;
                 while (IsAvailable)
                 {
                     var read = await _tls.ReadAsync(buffer.AsMemory(buffered), _stopToken).ConfigureAwait(false);
                     if (read == 0)
-                        throw new EndOfStreamException();
+                        return;
                     var available = buffered + read;
                     var consumed = await ConsumeRepliesAsync(buffer, available).ConfigureAwait(false);
                     buffered = available - consumed;
@@ -522,7 +525,8 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             }
             finally
             {
-                ArrayPool<byte>.Shared.Return(buffer);
+                if (buffer != null)
+                    ArrayPool<byte>.Shared.Return(buffer);
                 Abort();
             }
         }

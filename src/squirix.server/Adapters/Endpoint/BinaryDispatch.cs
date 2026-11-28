@@ -99,18 +99,31 @@ internal sealed class BinaryDispatch
             using var invocation = _scopes.EnterRemoteInvocation(context.Forwarded);
             using var activity = ServerCallCorrelation.StartActivity(path, call.TraceParent, call.TraceState);
             using var log = _correlation.BeginLogScope(path);
-            using var deadline = context.Forwarded ? null : ServerRpcDeadlineContext.Push(context.Deadline);
-            var (decision, lease) = await _admission.AcquireAsync(operationName, call.RequestAborted).ConfigureAwait(false);
-            if (!decision.IsAccepted)
-                return BinaryResponse.FromError(ServerOpContract.TooManyRequests(decision.RejectReason ?? "unknown"));
-
-            using (lease)
-                return await InvokeAdmittedAsync(call, request, method).ConfigureAwait(false);
+            return await AdmitWithDeadlineAsync(operationName, request, method, context).ConfigureAwait(false);
         }
         catch (Exception error) when (error is ResourceExhaustedException or JournalCapacityExceededException or ServerOpIdMismatchException or SquirixException)
         {
             return MapDispatchError(error);
         }
+    }
+
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    private async ValueTask<BinaryResponse> AdmitWithDeadlineAsync<TRequest, TResponse>(
+        string operationName,
+        TRequest request,
+        Func<RoutedCacheOperations<StoredValue>, TRequest, CancellationToken, ValueTask<TResponse>> method,
+        Request context)
+        where TRequest : WireMessage
+        where TResponse : WireMessage
+    {
+        var call = context.Call;
+        using var deadline = context.Forwarded ? null : ServerRpcDeadlineContext.Push(context.Deadline, false);
+        var (decision, lease) = await _admission.AcquireAsync(operationName, call.RequestAborted).ConfigureAwait(false);
+        if (!decision.IsAccepted)
+            return BinaryResponse.FromError(ServerOpContract.TooManyRequests(decision.RejectReason ?? "unknown"));
+
+        using (lease)
+            return await InvokeAdmittedAsync(call, request, method).ConfigureAwait(false);
     }
 
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]

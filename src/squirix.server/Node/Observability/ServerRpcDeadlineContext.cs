@@ -29,10 +29,11 @@ internal static class ServerRpcDeadlineContext
 
     /// <summary>Pushes a budget that already counts down on its own clock, so the scope narrows the deadline without restarting it.</summary>
     /// <param name="budget">The budget to make current.</param>
+    /// <param name="restoreOnDispose">Whether disposal restores the parent explicitly. An isolated async method restores its caller on return.</param>
     /// <returns>The scope that restores the previous deadline when disposed.</returns>
-    internal static IDisposable Push(in ServerDeadlineBudget budget)
+    internal static IDisposable Push(in ServerDeadlineBudget budget, bool restoreOnDispose = true)
     {
-        var scope = new Scope(budget, Current.Value);
+        var scope = new Scope(budget, Current.Value, restoreOnDispose);
         Current.Value = scope;
         return scope;
     }
@@ -55,12 +56,14 @@ internal static class ServerRpcDeadlineContext
     private sealed class Scope : IDisposable
     {
         private readonly Scope? _parent;
+        private readonly bool _restoreOnDispose;
         private int _disposed;
 
-        internal Scope(ServerDeadlineBudget? budget, Scope? parent)
+        internal Scope(ServerDeadlineBudget? budget, Scope? parent, bool restoreOnDispose = true)
         {
             Budget = budget;
             _parent = parent;
+            _restoreOnDispose = restoreOnDispose;
         }
 
         internal ServerDeadlineBudget? Budget { get; }
@@ -69,7 +72,7 @@ internal static class ServerRpcDeadlineContext
 
         public void Dispose()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0 || !ReferenceEquals(Current.Value, this))
+            if (Interlocked.Exchange(ref _disposed, 1) != 0 || !_restoreOnDispose || !ReferenceEquals(Current.Value, this))
                 return;
 
             var restored = _parent;
