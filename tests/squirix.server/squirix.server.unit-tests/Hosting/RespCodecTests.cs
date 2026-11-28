@@ -90,18 +90,17 @@ public sealed class RespCodecTests
     }
 
     /// <summary>Writes version-specific nulls, an integer and an opaque bulk value.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task WritesWireReplies(CancellationToken cancellationToken)
+    public async Task WritesWireReplies()
     {
-        await using var stream = new MemoryStream();
-        await Reply.WriteNullAsync(stream, false, cancellationToken);
-        await Reply.WriteNullAsync(stream, true, cancellationToken);
-        await Reply.WriteIntegerAsync(stream, long.MinValue, cancellationToken);
-        await Reply.WriteBulkAsync(stream, new byte[] { 0, 255 }, cancellationToken);
+        using var buffer = new ReplyBatch();
+        default(Response).AppendTo(buffer, false);
+        default(Response).AppendTo(buffer, true);
+        Response.Integer(long.MinValue).AppendTo(buffer, false);
+        Response.Bulk(new byte[] { 0, 255 }).AppendTo(buffer, false);
 
         byte[] expected = [.. "$-1\r\n_\r\n:-9223372036854775808\r\n$2\r\n"u8, 0, 255, .. "\r\n"u8];
-        _ = await Assert.That(stream.ToArray().AsSpan().SequenceEqual(expected)).IsTrue();
+        _ = await Assert.That(buffer.WrittenMemory.Span.SequenceEqual(expected)).IsTrue();
     }
 
     private sealed class FragmentedStream : MemoryStream

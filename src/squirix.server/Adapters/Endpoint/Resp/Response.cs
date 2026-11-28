@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Buffers.Text;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Adapters.Endpoint.Resp;
@@ -40,12 +41,12 @@ internal readonly record struct Response
                 buffer.Write(resp3 ? "_\r\n"u8 : "$-1\r\n"u8);
                 break;
             case ResponseKind.Bulk:
-                Reply.AppendNumber(buffer, "$"u8[0], _data.Length);
+                AppendNumber(buffer, "$"u8[0], _data.Length);
                 buffer.Write(_data.Span);
                 buffer.Write("\r\n"u8);
                 break;
             case ResponseKind.Integer:
-                Reply.AppendNumber(buffer, ":"u8[0], _number);
+                AppendNumber(buffer, ":"u8[0], _number);
                 break;
             case ResponseKind.Encoded:
                 buffer.Write(_data.Span);
@@ -53,5 +54,15 @@ internal readonly record struct Response
             default:
                 throw new InvalidOperationException("Unknown response kind.");
         }
+    }
+
+    private static void AppendNumber(IBufferWriter<byte> buffer, byte prefix, long value)
+    {
+        Span<byte> bytes = stackalloc byte[23];
+        bytes[0] = prefix;
+        _ = Utf8Formatter.TryFormat(value, bytes[1..21], out var written);
+        bytes[written + 1] = 13;
+        bytes[written + 2] = 10;
+        buffer.Write(bytes[..(written + 3)]);
     }
 }
