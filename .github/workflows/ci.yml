@@ -1177,6 +1177,21 @@ jobs:
                       | tee "$results/retained-memory.md" >> "$GITHUB_STEP_SUMMARY"
                     python3 tools/ci/check-wire-alloc.py benchmarks/baselines/table-alloc-ci-baseline.json "$results"
 
+            -   name: Check idle SDK connections and pipelined fill allocations
+                if: steps.gate.outputs.guard == 'true'
+                shell: bash
+                env:
+                    SQUIRIX_E2E_BENCHMARK_IN_PROCESS: "1"
+                run: |
+                    project=benchmarks/squirix.e2e.benchmarks/Squirix.E2EBenchmarks.csproj
+                    results="$BDN_ARTIFACTS/pipelined-fill"
+                    mkdir -p "$results"
+                    dotnet run --project "$project" -c Release --no-build -- --check-idle-buffers | tee "$results/idle-buffers.log"
+                    dotnet run --project "$project" -c Release --no-build -- \
+                      --filter '*PipelinedCacheFillBenchmarks.FillAsync' --warmupCount 5 --iterationCount 3 \
+                      --invocationCount 1 --unrollFactor 1 --exporters json --artifacts "$results"
+                    python3 tools/ci/check-wire-alloc.py benchmarks/baselines/pipelined-fill-alloc.json "$results"
+
             -   name: Upload Benchmark Artifacts
                 if: ${{ always() && steps.gate.outputs.guard == 'true' }}
                 uses: actions/upload-artifact@v7

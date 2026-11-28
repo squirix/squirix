@@ -75,8 +75,18 @@ jobs:
                         ${{ runner.temp }}/performance-guard/summary.md
                     if-no-files-found: warn
 
-    journal-performance:
-        name: Concurrent durable journal writes
+    pinned-performance:
+        name: ${{ matrix.name }}
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - name: Concurrent durable journal writes
+                      manifest: journal-batching-baseline
+                      artifact: journal-performance
+                    - name: Pipelined SDK cache fill
+                      manifest: pipelined-fill-baseline
+                      artifact: pipelined-fill-performance
         runs-on: ubuntu-latest
         timeout-minutes: 120
         steps:
@@ -103,14 +113,23 @@ jobs:
                     path: ~/.nuget/packages
                     key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
 
-            -   name: Compare independent writes with the pinned batching implementation
-                run: python3 tools/ci/run-performance-guard.py benchmarks/baselines/journal-batching-baseline.json "${{ runner.temp }}/performance-guard"
+            -   name: Ensure dev HTTPS certificate
+                if: matrix.manifest == 'pipelined-fill-baseline'
+                run: bash tools/ci/ensure-dev-https-cert.sh
+
+            -   name: Compare with the pinned implementation
+                env:
+                    MANIFEST: benchmarks/baselines/${{ matrix.manifest }}.json
+                run: |
+                    ref=$(jq -er '.baselineCommit' "$MANIFEST")
+                    git cat-file -e "$ref^{commit}" || git fetch --no-tags origin "$ref"
+                    python3 tools/ci/run-performance-guard.py "$MANIFEST" "$RUNNER_TEMP/performance-guard"
 
             -   name: Upload Performance Comparison
                 if: always()
                 uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
                 with:
-                    name: journal-performance
+                    name: ${{ matrix.artifact }}
                     retention-days: 7
                     path: |
                         ${{ runner.temp }}/performance-guard/reports/**/results/**

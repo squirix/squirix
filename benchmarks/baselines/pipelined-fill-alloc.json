@@ -1,0 +1,8 @@
+{
+  "title": "Pipelined SDK cache fill allocations",
+  "tolerance": 0.2,
+  "bytesPerOperation": {
+    "PipelinedCacheFillBenchmarks.FillAsync": 1268
+  },
+  "measurement": "Linux x64, .NET 10, one TLS connection, depth 128. The SDK and server share a process. Four Ubuntu runs measured 1267–1268 B per acknowledged SET; develop@fa5f61bd2 measured 3960–3964 B."
+}
