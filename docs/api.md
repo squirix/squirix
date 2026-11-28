@@ -1,6 +1,6 @@
 # API reference (v0.1 preview)
 
-The Squirix client SDK uses a binary TLS transport for cache operations. HTTP endpoints serve health and metrics.
+The Squirix client SDK uses a binary protocol over TCP with optional TLS for cache operations. HTTP endpoints serve health and metrics.
 
 Preview.11 also provides an [`IDistributedCache` adapter](distributed-cache.md) for ASP.NET Core and HybridCache.
 

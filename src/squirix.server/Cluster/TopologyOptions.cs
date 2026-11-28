@@ -51,7 +51,7 @@ internal sealed class TopologyOptions
     /// <summary>Gets a value indicating whether the operator explicitly opted into RF&gt;1 replication (default false).</summary>
     internal bool ReplicationEnabled { get; init; }
 
-    internal required Uri Uri { get; init; } = new("https://localhost:6001");
+    internal required Uri Uri { get; init; } = new("tcp://localhost:6001");
 
     internal int VirtualNodes { get; init; } = 128;
 }

@@ -31,13 +31,13 @@ internal static class TopologyValidator
     private const string PeersTooMany = "Peers cannot contain more than 1024 entries.";
     private const string PeersUriDuplicate = "Peers contains duplicate Uri.";
     private const string PeersUriHostRequired = "Peers[].Uri must include a host.";
-    private const string PeersUriHttpsRequired = "Peers[].Uri must be an absolute https URI.";
+    private const string PeersUriSchemeRequired = "Peers[].Uri must be an absolute tcp or https URI.";
     private const string PeersUriOriginRequired = "Peers[].Uri must be an origin URI without credentials, path, query, or fragment.";
     private const string PeersUriTooLong = "Peers[].Uri cannot exceed 2048 characters.";
     private const string ReplicaCountAbovePeerCount = "ReplicaCount cannot exceed the number of configured peers.";
     private const string ReplicaCountMustBePositive = "ReplicaCount must be greater than zero.";
     private const string UriHostRequired = "Uri must include a host.";
-    private const string UriHttpsRequired = "Uri must be an absolute https URI.";
+    private const string UriSchemeRequired = "Uri must be an absolute tcp or https URI.";
     private const string UriOriginRequired = "Uri must be an origin URI without credentials, path, query, or fragment.";
     private const string UriTooLong = "Uri cannot exceed 2048 characters.";
     private const string VirtualNodesMustBePositive = "VirtualNodes must be greater than zero.";
@@ -83,7 +83,7 @@ internal static class TopologyValidator
         return false;
     }
 
-    private static void CollectHttpsUriFailures(List<string> failures, Uri value, string tooLongMessage, string hostRequiredMessage, string originRequiredMessage)
+    private static void CollectOriginFailures(List<string> failures, Uri value, string tooLongMessage, string hostRequiredMessage, string originRequiredMessage)
     {
         if (value.OriginalString.Length > MaxUrlLength)
             failures.Add(tooLongMessage);
@@ -111,7 +111,7 @@ internal static class TopologyValidator
     private static bool HasNonOriginParts(Uri value) => !string.IsNullOrEmpty(value.UserInfo) || !string.Equals(value.AbsolutePath, "/", StringComparison.OrdinalIgnoreCase) ||
                                                         !string.IsNullOrEmpty(value.Query) || !string.IsNullOrEmpty(value.Fragment);
 
-    private static bool IsAbsoluteHttpsUri(Uri value) => value.IsAbsoluteUri && string.Equals(value.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
+    private static bool IsTransportUri(Uri value) => value.IsAbsoluteUri && (string.Equals(value.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal) || string.Equals(value.Scheme, "tcp", StringComparison.Ordinal)) && value.Port >= 0;
 
     private static void ValidateFailoverSwitches(List<string> failures, TopologyValidationArgs args)
     {
@@ -136,7 +136,7 @@ internal static class TopologyValidator
     {
         var (peerNodeId, uri) = peer;
         ValidateIdentifier(failures, peerNodeId, PeersNodeIdRequired, PeersNodeIdTooLong);
-        ValidateUri(failures, uri, PeersUriHttpsRequired, PeersUriTooLong, PeersUriHostRequired, PeersUriOriginRequired);
+        ValidateUri(failures, uri, PeersUriSchemeRequired, PeersUriTooLong, PeersUriHostRequired, PeersUriOriginRequired);
         if (peerNodeId != null && !peerIds.Add(peerNodeId))
             failures.Add(PeersDuplicateNodeId);
         if (uri is { IsAbsoluteUri: true } && !peerUris.Add(uri.AbsoluteUri))
@@ -205,7 +205,7 @@ internal static class TopologyValidator
     {
         ValidateIdentifier(failures, args.ClusterId, ClusterIdRequired, ClusterIdTooLong);
         ValidateIdentifier(failures, args.NodeId, NodeIdRequired, NodeIdTooLong);
-        ValidateUri(failures, args.NodeUri, UriHttpsRequired, UriTooLong, UriHostRequired, UriOriginRequired);
+        ValidateUri(failures, args.NodeUri, UriSchemeRequired, UriTooLong, UriHostRequired, UriOriginRequired);
         ValidateVirtualNodes(failures, args.VirtualNodes);
         ValidatePersistenceSettings(failures, args);
 
@@ -217,15 +217,15 @@ internal static class TopologyValidator
         ValidateFailoverSwitches(failures, args);
     }
 
-    private static void ValidateUri(List<string> failures, Uri? value, string httpsRequiredMessage, string tooLongMessage, string hostRequiredMessage, string originRequiredMessage)
+    private static void ValidateUri(List<string> failures, Uri? value, string schemeRequiredMessage, string tooLongMessage, string hostRequiredMessage, string originRequiredMessage)
     {
-        if (value == null || !IsAbsoluteHttpsUri(value))
+        if (value == null || !IsTransportUri(value))
         {
-            failures.Add(httpsRequiredMessage);
+            failures.Add(schemeRequiredMessage);
             return;
         }
 
-        CollectHttpsUriFailures(failures, value, tooLongMessage, hostRequiredMessage, originRequiredMessage);
+        CollectOriginFailures(failures, value, tooLongMessage, hostRequiredMessage, originRequiredMessage);
     }
 
     private static void ValidateVirtualNodes(List<string> failures, int virtualNodes)

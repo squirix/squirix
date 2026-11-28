@@ -20,7 +20,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
 
-/// <summary>Owns the node's public TLS socket and drains it before the storage services stop.</summary>
+/// <summary>Owns the node's public client socket and drains it before the storage services stop.</summary>
 internal sealed class NativeClientService : INodeService, IAsyncDisposable
 {
     private const string Localhost = "localhost";
@@ -58,12 +58,19 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        _certificate = AcquireCertificate();
-        ListenerCertificate.Validate(_certificate);
-        var tls = new SslServerAuthenticationOptions { ServerCertificateContext = SslStreamCertificateContext.Create(_certificate, _additionalCertificates, true) };
+        var publicTls = string.Equals(_topology.Uri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal);
+        var configuredManagement = _managementUri ?? ReadManagementUri();
+        SslServerAuthenticationOptions? tls = null;
+        if (publicTls || string.Equals(configuredManagement?.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal))
+        {
+            _certificate = AcquireCertificate();
+            ListenerCertificate.Validate(_certificate);
+            tls = new SslServerAuthenticationOptions { ServerCertificateContext = SslStreamCertificateContext.Create(_certificate, _additionalCertificates, true) };
+        }
+
         var material = _services.Require<MtlsCertificate>();
         var peerPort = material.Enabled ? _services.Require<MtlsOptions>().InternalListenPort : 0;
-        var (managementUri, managementAddresses) = await ResolveManagementBindingAsync(_certificate, peerPort, cancellationToken).ConfigureAwait(false);
+        var (managementUri, managementAddresses) = await ResolveManagementBindingAsync(configuredManagement, _certificate, peerPort, cancellationToken).ConfigureAwait(false);
         var logger = _services.Require<IServerLoggerFactory>().CreateLogger<NativeClientService>();
         _ = _services.Find<PrometheusMetricsScraper>();
         var management = new NativeManagementEndpoint(_services, AuthenticateManagementAsync, _services.Require<IServerLoggerFactory>().CreateLogger<NativeManagementEndpoint>());
@@ -72,13 +79,13 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
 
         try
         {
-            AddListeners(_topology.Uri, socket => NativeBinaryEndpoint.CreateListener(socket, tls, _services, _mutationReplay, 1024, NextConnectionId), listeners);
+            AddListeners(_topology.Uri, socket => NativeBinaryEndpoint.CreateListener(socket, publicTls ? tls : null, _services, _mutationReplay, 1024, NextConnectionId), listeners);
             var managementIndex = listeners.Count;
             AddListeners(managementUri, socket => new NativeTlsListener(socket, tls, management.ServeAsync, _services.Require<IServerLoggerFactory>().CreateLogger<NativeTlsListener>(), 64), listeners, managementAddresses);
             if (listeners[managementIndex].Socket.LocalEndPoint is IPEndPoint boundManagement)
                 ManagementUri = new UriBuilder(managementUri) { Port = boundManagement.Port }.Uri;
             AddPeerListener(material, peerPort, listeners);
-            AddRespListener(tls, listeners);
+            AddRespListener(publicTls ? tls : null, listeners);
             foreach (var (socket, _) in listeners)
                 LogListening(logger, socket.LocalEndPoint);
             foreach (var (_, listener) in listeners)
@@ -144,7 +151,7 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
         if (port == peerPort)
             port = primary.Port <= 65532 ? primary.Port + 3 : primary.Port - 3;
         var host = certificateMatchesLocalhost ? Localhost : IPAddress.Loopback.ToString();
-        return new UriBuilder(Uri.UriSchemeHttps, host, port).Uri;
+        return new UriBuilder(string.Equals(primary.Scheme, "tcp", StringComparison.Ordinal) ? Uri.UriSchemeHttp : Uri.UriSchemeHttps, host, port).Uri;
     }
 
     private static void LogManagementCertificateMismatch(IServerLogger logger, Uri managementUri)
@@ -262,7 +269,7 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
             return;
 
         _peerMaterial = material.Retain();
-        var internalUri = new UriBuilder(_topology.Uri) { Port = peerPort }.Uri;
+        var internalUri = new UriBuilder(_topology.Uri) { Scheme = Uri.UriSchemeHttps, Port = peerPort }.Uri;
         var feature = _services.Require<FeatureState>();
         var peer = new NativePeerEndpoint(_services, peerPort, feature.NetworkReplicationEnabled || feature.FoundationOnly);
         var verifier = new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, _services.Require<IServerLoggerFactory>().CreateLogger<PeerHandshakeVerifier>());
@@ -270,7 +277,7 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
         AddListeners(internalUri, socket => new NativeTlsListener(socket, handshake.CreateServerOptions, peer.ServeAsync, _services.Require<IServerLoggerFactory>().CreateLogger<NativeTlsListener>(), 256), listeners);
     }
 
-    private void AddRespListener(SslServerAuthenticationOptions tls, List<(Socket Socket, NativeTlsListener Listener)> listeners)
+    private void AddRespListener(SslServerAuthenticationOptions? tls, List<(Socket Socket, NativeTlsListener Listener)> listeners)
     {
         if (_respUri == null)
             return;
@@ -280,7 +287,7 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
         var index = listeners.Count;
         var clock = _services.Require<TimeProvider>();
         var cache = new CacheCommands(_services.Require<BinaryRequestAccessor>(), _services.Require<BinaryDispatch>(), validator, clock, _mutationReplay);
-        Func<SslStream, IPEndPoint, CancellationToken, CancellationToken, Task> serve =
+        Func<Stream, IPEndPoint, CancellationToken, CancellationToken, Task> serve =
             (stream, _, graceful, abort) => new Session(validator, cache, Interlocked.Increment(ref _respConnectionSequence), clock).RunAsync(stream, graceful, abort);
         AddListeners(_respUri, socket => new NativeTlsListener(socket, tls, serve, logger, 64), listeners);
         if (listeners[index].Socket.LocalEndPoint is IPEndPoint bound)
@@ -289,11 +296,10 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
 
     private string NextConnectionId() => Interlocked.Increment(ref _connectionSequence).ToString("x", CultureInfo.InvariantCulture);
 
-    private async ValueTask<(Uri Uri, IPAddress[]? Addresses)> ResolveManagementBindingAsync(X509Certificate2 certificate, int peerPort, CancellationToken cancellationToken)
+    private async ValueTask<(Uri Uri, IPAddress[]? Addresses)> ResolveManagementBindingAsync(Uri? configured, X509Certificate2? certificate, int peerPort, CancellationToken cancellationToken)
     {
-        var configured = _managementUri ?? ReadManagementUri();
-        var uri = configured ?? ResolveDefaultManagementUri(_topology.Uri, peerPort, certificate.MatchesHostname(Localhost));
-        if (configured == null && !certificate.MatchesHostname(uri.IdnHost))
+        var uri = configured ?? ResolveDefaultManagementUri(_topology.Uri, peerPort, certificate?.MatchesHostname(Localhost) ?? false);
+        if (configured == null && certificate?.MatchesHostname(uri.IdnHost) == false)
             LogManagementCertificateMismatch(_services.Require<IServerLoggerFactory>().CreateLogger<NativeClientService>(), uri);
         var addresses = await ResolveManagementAddressesAsync(uri, cancellationToken).ConfigureAwait(false);
         return (uri, addresses);

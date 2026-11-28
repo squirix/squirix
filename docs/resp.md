@@ -1,7 +1,7 @@
 # RESP cache endpoint
 
-Squirix exposes a RESP2 and RESP3 endpoint over TLS at `127.0.0.1:6379` by default.
-It serves single-key cache operations over TLS using the same routing, replication, and storage
+Squirix exposes a RESP2 and RESP3 endpoint over TCP at `127.0.0.1:6379` by default.
+It serves single-key cache operations using the same routing, replication, and storage
 as the Squirix client endpoint. The receiving node routes each command to the owner or leader of its key.
 In a replicated cluster, write replies follow the Squirix replication commit policy.
 If the server cannot establish whether a write took effect, it returns `ERR commit outcome unknown`.
@@ -36,7 +36,7 @@ command checks the RESP settings in the supplied file. An explicit `--settings` 
 
 Use a literal IP address and a TCP port distinct from the Squirix client and management endpoints.
 If multiple nodes share the same bind address, give each a different RESP port or use `0` to let the OS
-allocate a port. The host logs the bound `rediss://` URI.
+allocate a port. The host logs a `redis://` URI for TCP or a `rediss://` URI for TLS.
 
 Set `Squirix.Resp.Enabled` to `false` or set `SQUIRIX_RESP_ENABLED=false` to disable the listener on a standalone node.
 For an embedded node, set `Resp = new RespOptions { Enabled = false }`.
@@ -50,7 +50,7 @@ using Squirix.Server;
 var options = new SquirixServerOptions
 {
     NodeId = "node-a",
-    Uri = new Uri("https://localhost:5001"),
+    Uri = new Uri("tcp://localhost:5001"),
 };
 await using var server = await SquirixServer.StartAsync(options);
 Console.WriteLine(server.RespUri);
@@ -58,12 +58,15 @@ Console.WriteLine(server.RespUri);
 
 ## Connect a client
 
-The RESP listener uses the [server TLS certificate](configuration.md#environment-variables).
+With default settings, run `redis-cli -h 127.0.0.1 -p 6379 PING` to receive `PONG`.
+
+Start the host with `squirix-server run --tls` to encrypt RESP and binary client connections. In this mode,
+the RESP listener uses the [server TLS certificate](configuration.md#environment-variables).
 The endpoint name used by the client must be covered by that certificate. When
 [JWT authentication](security/jwt-signing-keys.md) is configured, pass a valid JWT as the Redis password.
 The accepted username is `default`. Configure JWT authentication before binding to a non-loopback address.
 Loopback development nodes can use RESP without a token when JWT authentication is disabled.
-When JWT is enabled, the client has five seconds after TLS negotiation to authenticate. Failed commands do not extend that window.
+When JWT is enabled, the client has five seconds after connection setup to authenticate. Failed commands do not extend that window.
 
 Use a PEM file that the client trusts and set `REDISCLI_AUTH` to the current JWT for an authenticated node.
 
@@ -73,7 +76,7 @@ redis-cli --tls --cacert ./server-ca.pem -h localhost -p 6379 -3 SET example val
 redis-cli --tls --cacert ./server-ca.pem -h localhost -p 6379 -3 GET example
 ```
 
-For StackExchange.Redis, configure the endpoint, TLS, and the current token before connecting.
+For StackExchange.Redis with TLS enabled, configure the endpoint, TLS, and the current token before connecting.
 The server certificate must be trusted by the client process.
 
 ```csharp

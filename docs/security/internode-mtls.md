@@ -39,7 +39,7 @@ Internode mTLS is **mandatory at startup** when the cluster topology includes at
 entry whose `NodeId` differs from the local `Cluster.NodeId`). Standalone nodes with no remote peers do not load cluster
 mTLS material.
 
-Multi-node settings must use **HTTPS** `Cluster.Uri` values. Plaintext `http://` cluster URLs are rejected.
+`Cluster.Uri` advertises the client transport (`tcp://` or `https://`). Peer connections use the dedicated mTLS port in both modes.
 
 ## Production model
 

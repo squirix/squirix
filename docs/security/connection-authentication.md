@@ -1,11 +1,12 @@
 # Cache connection authentication
 
-When JWT authentication is configured, Squirix authenticates each physical external TLS connection before accepting cache RPCs on it.
+When JWT authentication is configured, Squirix authenticates each physical external cache connection before accepting cache RPCs on it.
 The SDK obtains a JWT from `SquirixClientOptions.BearerTokenProvider` during that connection's authentication exchange.
 Subsequent RPCs use the identity bound to the connection and do not send a bearer token or repeat its signature verification.
 Authorization, the accepted lifetime bounds and the active trust configuration are still checked at each request boundary.
 
-Update SDK and server together. The client presents its bearer token during the binary TLS connection handshake.
+Update SDK and server together. The client presents its bearer token during the binary connection handshake.
+Use `--tls` and HTTPS SDK endpoints to encrypt bearer tokens and cache traffic.
 
 ## Supply credentials
 
@@ -64,7 +65,7 @@ Exceptions thrown by custom clones remain host hook errors.
 
 ## Transport
 
-The authenticated cache transport uses a versioned authentication exchange inside TLS before the first cache request.
+The authenticated cache transport uses a versioned authentication exchange on the selected transport before the first cache request.
 The token is encrypted on the wire. Tokens must fit within the protocol's 8,192-byte UTF-8 limit.
 The server bounds authentication input, waiting and concurrent work.
 

@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.IO;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -67,7 +68,7 @@ public sealed class NativeTlsListenerTests
 
         return;
 
-        async Task ServeAsync(SslStream stream, IPEndPoint remote, CancellationToken stopping, CancellationToken aborted)
+        async Task ServeAsync(Stream stream, IPEndPoint remote, CancellationToken stopping, CancellationToken aborted)
         {
             admitted.SetResult();
             await release.Task.WaitAsync(aborted);

@@ -20,7 +20,7 @@ internal static class Program
 
         var endpoint = Environment.GetEnvironmentVariable("Squirix__Endpoint") is { Length: > 0 } configuredEndpoint
             ? new Uri(configuredEndpoint)
-            : new UriBuilder(Uri.UriSchemeHttps, "localhost", 5001).Uri;
+            : new UriBuilder("tcp", "localhost", 5001).Uri;
         var services = new ServiceCollection();
         _ = services.AddSquirixCache(options =>
         {

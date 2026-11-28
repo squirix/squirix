@@ -20,7 +20,7 @@ namespace Squirix.Internal.Cluster.Transport;
 
 internal static class BinaryClientProtocol
 {
-    internal static async Task<(TcpClient Socket, SslStream Tls, bool Replay, bool Extended)> ConnectAsync(
+    internal static async Task<(TcpClient Socket, Stream Stream, bool Replay, bool Extended)> ConnectAsync(
         Uri endpoint, Func<CancellationToken, ValueTask<string>>? provider, SslClientAuthenticationOptions? tlsOptions, CancellationToken token)
     {
         try
@@ -203,23 +203,29 @@ internal static class BinaryClientProtocol
     internal static bool CanReadLargeLookupReply(IWireParser parser, int status) =>
         status == 0 && (ReferenceEquals(parser, GetDistributedAsyncResponse.Parser) || ReferenceEquals(parser, GetValueAsyncResponse.Parser));
 
-    private static async Task<(TcpClient Socket, SslStream Tls, bool Replay, bool Extended)> ConnectAsync(
+    private static async Task<(TcpClient Socket, Stream Stream, bool Replay, bool Extended)> ConnectAsync(
         Uri endpoint, Func<CancellationToken, ValueTask<string>>? provider, SslClientAuthenticationOptions? tlsOptions, bool extended, CancellationToken token)
     {
         var socket = new TcpClient { NoDelay = true };
-        SslStream? tls = null;
+        Stream? stream = null;
         try
         {
             await socket.ConnectAsync(endpoint.IdnHost, endpoint.Port, token).ConfigureAwait(false);
-            tls = new SslStream(socket.GetStream());
-            await tls.AuthenticateAsClientAsync(CreateTlsOptions(endpoint, tlsOptions), token).ConfigureAwait(false);
-            var supportsMutationReplay = await NegotiateAsync(tls, provider, extended, token).ConfigureAwait(false);
-            return (socket, tls, supportsMutationReplay, extended);
+            stream = socket.GetStream();
+            if (string.Equals(endpoint.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal))
+            {
+                var tls = new SslStream(stream);
+                stream = tls;
+                await tls.AuthenticateAsClientAsync(CreateTlsOptions(endpoint, tlsOptions), token).ConfigureAwait(false);
+            }
+
+            var supportsMutationReplay = await NegotiateAsync(stream, provider, extended, token).ConfigureAwait(false);
+            return (socket, stream, supportsMutationReplay, extended);
         }
         catch
         {
-            if (tls != null)
-                await tls.DisposeAsync().ConfigureAwait(false);
+            if (stream != null)
+                await stream.DisposeAsync().ConfigureAwait(false);
             socket.Dispose();
             throw;
         }
@@ -267,7 +273,7 @@ internal static class BinaryClientProtocol
         _ => throw new SquirixTransportException(new CallStatus(CacheTransportStatusCode.FailedPrecondition, "The endpoint does not speak the Squirix cache protocol.")),
     };
 
-    private static async Task<bool> NegotiateAsync(SslStream tls, Func<CancellationToken, ValueTask<string>>? provider, bool extended, CancellationToken token)
+    private static async Task<bool> NegotiateAsync(Stream tls, Func<CancellationToken, ValueTask<string>>? provider, bool extended, CancellationToken token)
     {
         var preface = ArrayPool<byte>.Shared.Rent(Frames.PrefaceBytes);
         try

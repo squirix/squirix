@@ -42,19 +42,19 @@ Choose packages by process role. For Microsoft caching APIs, follow the [adapter
 For the native typed cache API, install the client SDK:
 
 ```bash
-dotnet add package squirix --version 0.2.0-preview.1
+dotnet add package squirix --prerelease
 ```
 
 Run the server separately with the global tool:
 
 ```bash
-dotnet tool install --global squirix.server.tool --version 0.2.0-preview.1
+dotnet tool install --global squirix.server.tool --prerelease
 ```
 
 Applications that embed a node use the server library:
 
 ```bash
-dotnet add package squirix.server --version 0.2.0-preview.1
+dotnet add package squirix.server --prerelease
 ```
 
 Run package commands in the corresponding existing project directory. Use matching client and server versions.
@@ -74,8 +74,8 @@ See [Getting started](getting-started.md) for both setup paths.
 
 - Strict client/server architecture with wire-contract boundaries
 - Strongly typed `ICache<T>` with explicit read results and expiration on writes
-- Binary TLS transport with a shared cache codec
-- Health, readiness and metrics on a dedicated HTTP/1.1 management listener over TLS
+- Binary TCP transport with optional TLS with a shared cache codec
+- Health, readiness and metrics on a dedicated HTTP/1.1 management listener with optional TLS
 - Opt-in journal-based durability with recovery on startup (`UsePersistence()` / `--persist`)
 - Snapshots and journal retention
 - Prometheus metrics and OpenTelemetry tracing

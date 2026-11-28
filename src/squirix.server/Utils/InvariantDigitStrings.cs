@@ -24,23 +24,23 @@ internal static class InvariantDigitStrings
     /// <returns>A D6 invariant digit string.</returns>
     internal static string FormatD6(int value) => value is >= 0 and < CachedD6Count ? CachedD6[value] : value.ToString("D6", CultureInfo.InvariantCulture);
 
-    /// <summary>Builds <c language="csharp">https://{host}:{port}</c> in a single allocation.</summary>
+    /// <summary>Builds <c language="csharp">tcp://{host}:{port}</c> in a single allocation.</summary>
     /// <param name="host">Host name or address.</param>
     /// <param name="port">TCP port.</param>
-    /// <returns>An absolute HTTPS origin string.</returns>
-    internal static string FormatHttpsOrigin(string host, int port)
+    /// <returns>An absolute TCP origin string.</returns>
+    internal static string FormatTcpOrigin(string host, int port)
     {
         ArgumentNullException.ThrowIfNull(host);
 
         var ipv6 = host.Contains(':', StringComparison.Ordinal);
         var digitLength = CountDigits(port);
         return string.Create(
-            8 + (ipv6 ? host.Length + 2 : host.Length) + 1 + digitLength,
+            6 + (ipv6 ? host.Length + 2 : host.Length) + 1 + digitLength,
             (host, port, ipv6),
             static (span, state) =>
             {
-                "https://".AsSpan().CopyTo(span);
-                var offset = 8;
+                "tcp://".AsSpan().CopyTo(span);
+                var offset = 6;
                 if (state.ipv6)
                     span[offset++] = '[';
                 state.host.AsSpan().CopyTo(span[offset..]);

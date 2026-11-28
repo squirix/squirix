@@ -24,16 +24,25 @@ namespace Squirix.Server.UnitTests.Hosting;
 /// <summary>Verifies RESP TLS hosting and session negotiation against real sockets.</summary>
 public sealed class RespHostingTests
 {
-    /// <summary>Specifying just an ephemeral port starts the RESP TLS listener.</summary>
+    /// <summary>An HTTPS primary endpoint also enables TLS on the RESP listener.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Timeout(30_000)]
-    public async Task DefaultListenerAcceptsPing(CancellationToken cancellationToken)
+    public async Task TlsListenerAcceptsPing(CancellationToken cancellationToken)
     {
         await using var host = await RespTestHost.StartAsync(cancellationToken, new RespOptions { Port = 0 });
         _ = await Assert.That(host.RespUri!.Host).IsEqualTo("127.0.0.1");
         await using var stream = await host.ConnectAsync(cancellationToken);
         await RespCacheTests.ExchangeAsync(stream, RespTestHost.Command("PING"), "+PONG\r\n", cancellationToken);
+    }
+
+    /// <summary>Default server options select plain TCP for the binary client endpoint.</summary>
+    [Test]
+    public async Task DefaultServerUsesTcp()
+    {
+        var options = new SquirixServerOptions();
+        _ = await Assert.That(options.Uri).IsEqualTo(new Uri("tcp://localhost:5001"));
+        _ = await Assert.That(options.TryValidate(out _)).IsTrue();
     }
 
     /// <summary>Disabled RESP never binds its configured port.</summary>

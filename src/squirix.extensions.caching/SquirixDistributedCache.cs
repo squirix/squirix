@@ -178,12 +178,12 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
             var name = RemoteDistributedCache.ValidateCacheName(options.CacheName);
             Uri[] endpoints = [.. options.ClientOptions.Endpoints];
             if (endpoints.Length == 0)
-                throw new ArgumentException("Configure at least one HTTPS Squirix endpoint.", nameof(options));
+                throw new ArgumentException("Configure at least one Squirix endpoint.", nameof(options));
 
             foreach (var endpoint in endpoints)
             {
-                if (endpoint is not { IsAbsoluteUri: true } || !string.Equals(endpoint.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal))
-                    throw new ArgumentException("Squirix endpoints must be absolute HTTPS URIs.", nameof(options));
+                if (endpoint is not { IsAbsoluteUri: true } || endpoint.Scheme is not ("https" or "tcp") || endpoint.Port < 1)
+                    throw new ArgumentException("Squirix endpoints must be absolute TCP or HTTPS URIs with a port.", nameof(options));
             }
 
             var tokenProvider = options.ClientOptions.BearerTokenProvider;

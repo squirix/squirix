@@ -11,7 +11,7 @@ Prerequisites:
 - Release packages built from the current source tree support both .NET 10 and [.NET 11](https://dotnet.microsoft.com/download/dotnet/11.0).
 - Building repository sources uses the SDK selected by [`global.json`](../global.json).
 - Docker Desktop with Linux containers for the Docker examples; the client example requires Compose 2.17 or newer.
-- For local HTTPS (tests, benchmarks, examples; not Docker): `dotnet dev-certs https --trust`
+- For the optional local TLS example, trust the development certificate with `dotnet dev-certs https --trust`.
 
 ## 1. Run a development server
 
@@ -22,16 +22,11 @@ handles its development JWT and certificate setup.
 ### NuGet global tool
 
 ```bash
-dotnet tool install --global squirix.server.tool --version 0.2.0-preview.1
+dotnet tool install --global squirix.server.tool --prerelease
 squirix-server run
 ```
 
-These commands use `0.2.0-preview.1`. See the [root README](../README.md) for the current package version.
-
-The host listens on `https://localhost:5001` by default (loopback bind), runs as an in-memory cache, and prints
-ready-to-use client and operational endpoint URLs. **No JWT is required** on this default URL — any local process can
-access the cache API. This is a development convenience, not production hardening. See
-[server-mode.md — Loopback development default](server-mode.md#loopback-development-default-not-production-posture).
+The server listens on `tcp://localhost:5001` and keeps entries in memory by default. Any local process can access the cache unless you configure JWT authentication.
 
 To use journal/snapshot persistence instead, stop the in-memory server with Ctrl+C and restart it with:
 
@@ -39,26 +34,24 @@ To use journal/snapshot persistence instead, stop the in-memory server with Ctrl
 squirix-server run --persist --data-dir data
 ```
 
-Health probes use the management HTTPS listener (local tool default port **5003**):
+Health probes use the loopback HTTP listener (local tool default port **5003**):
 
 ```bash
-curl https://localhost:5003/health
+curl http://127.0.0.1:5003/health
 ```
 
 To expose the Prometheus endpoint, start the server with `squirix-server run --metrics` and enable Prometheus export
 in [the settings file](configuration.md#prometheus-metrics-squirixsettingsjson).
 
 ```bash
-curl https://localhost:5003/metrics
+curl http://127.0.0.1:5003/metrics
 ```
 
 `/metrics` accepts loopback connections without a token even when JWT authentication is enabled.
 
-If the server cannot bind to port 5001, or the client reports a TLS chain error such as `PartialChain`,
-check that the CLI started successfully and that the endpoint belongs to that process. A container or another
-server already using the port may answer the health probe with a different certificate. If port 5001 is in use,
-start the CLI with `squirix-server run --urls https://localhost:5443` (if 5443 is free). Use port 5443 in the
-client example and the management URL printed by the CLI for health probes (port 5445 by default). Keep TLS verification enabled.
+If port 5001 is in use, run `squirix-server run --urls tcp://localhost:5443` and use that URI in the client. The host prints the management URL at startup.
+
+To encrypt the SDK and RESP connections, restart with `squirix-server run --tls`. Use `https://localhost:5001` in the SDK and the printed HTTPS URL for health probes.
 
 ### Docker
 
@@ -89,7 +82,7 @@ dotnet new console --framework net10.0 -o SquirixDemo
 For the server tool, install the matching SDK package:
 
 ```bash
-dotnet add SquirixDemo/SquirixDemo.csproj package squirix --version 0.2.0-preview.1
+dotnet add SquirixDemo/SquirixDemo.csproj package squirix --prerelease
 ```
 
 If you started the server from this checkout, run the following command from the repository root to reference the SDK from the same checkout:
@@ -100,9 +93,7 @@ dotnet add SquirixDemo/SquirixDemo.csproj reference src/squirix/Squirix.csproj
 
 ## 3. Connect and use a typed cache
 
-Use the public TLS endpoint from the host output.
-
-**Local tool or `dotnet run`** (default `https://localhost:5001`, no JWT unless you configure auth):
+The example uses the default TCP endpoint. If you changed the port or enabled TLS, use the client URI printed by the server.
 
 Replace `SquirixDemo/Program.cs` with:
 
@@ -114,7 +105,7 @@ using Squirix.Client;
 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
 var cancellationToken = timeout.Token;
 
-await using var client = await SquirixClient.ConnectAsync(new Uri("https://localhost:5001"), cancellationToken);
+await using var client = await SquirixClient.ConnectAsync(new Uri("tcp://localhost:5001"), cancellationToken);
 
 var cache = await client.GetCacheAsync<string>("demo", cancellationToken);
 await cache.SetAsync("greeting", "hello", null, cancellationToken);

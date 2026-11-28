@@ -56,11 +56,11 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
         }
     }
 
-    internal static void RequireHttps(Uri uri)
+    internal static void ValidateEndpoint(Uri uri)
     {
         ArgumentNullException.ThrowIfNull(uri);
-        if (!uri.IsAbsoluteUri || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("Squirix transport requires absolute HTTPS endpoints.", nameof(uri));
+        if (!uri.IsAbsoluteUri || uri.Scheme is not ("https" or "tcp") || uri.Port < 1)
+            throw new ArgumentException("Squirix transport requires absolute TCP or HTTPS endpoints with a port.", nameof(uri));
     }
 
     internal async Task ConnectAsync(CancellationToken cancellationToken)
@@ -209,7 +209,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
         private const int PendingCapacity = BinaryRequestSlots.Capacity;
 
         private readonly TcpClient _socket;
-        private readonly SslStream _tls;
+        private readonly Stream _stream;
         private readonly CancellationTokenSource _stop = new();
         private readonly CancellationToken _stopToken;
         private readonly BinaryRequestSlots _slots = new();
@@ -226,11 +226,11 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
         private volatile bool _sending;
         private BinaryConnectionLifetime _lifetime;
 
-        private Connection(TcpClient socket, SslStream tls, bool supportsMutationReplay, bool supportsExtendedFrames)
+        private Connection(TcpClient socket, Stream stream, bool supportsMutationReplay, bool supportsExtendedFrames)
         {
             _lifetime = default;
             _socket = socket;
-            _tls = tls;
+            _stream = stream;
             SupportsMutationReplay = supportsMutationReplay;
             SupportsExtendedFrames = supportsExtendedFrames;
             _stopToken = _stop.Token;
@@ -273,7 +273,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             }
             finally
             {
-                await _tls.DisposeAsync().ConfigureAwait(false);
+                await _stream.DisposeAsync().ConfigureAwait(false);
                 _stop.Dispose();
             }
         }
@@ -451,7 +451,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                 var frameSize = request.HeaderBytes + request.Size;
                 if (size > 0 && size + frameSize > buffer.Length)
                 {
-                    await _tls.WriteAsync(buffer.AsMemory(0, size), _stopToken).ConfigureAwait(false);
+                    await _stream.WriteAsync(buffer.AsMemory(0, size), _stopToken).ConfigureAwait(false);
                     size = 0;
                 }
 
@@ -471,7 +471,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             }
 
             if (size > 0)
-                await _tls.WriteAsync(buffer.AsMemory(0, size), _stopToken).ConfigureAwait(false);
+                await _stream.WriteAsync(buffer.AsMemory(0, size), _stopToken).ConfigureAwait(false);
         }
 
         private bool PrepareFrame(in Outgoing outgoing, Span<byte> target, out BinaryClientRequest request, out bool filled)
@@ -505,7 +505,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             using var message = new WireSegments(buffer);
             _ = request.WriteTo(message, item.Id, RemainingMilliseconds(item, now));
             item.MarkBodyReady();
-            await message.SendAsync(_tls, _stopToken).ConfigureAwait(false);
+            await message.SendAsync(_stream, _stopToken).ConfigureAwait(false);
         }
 
         private async Task ReadAsync()
@@ -514,12 +514,12 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
             try
             {
                 // SslStream can wait for input before the session rents its first reply buffer.
-                _ = await _tls.ReadAsync(Memory<byte>.Empty, _stopToken).ConfigureAwait(false);
+                _ = await _stream.ReadAsync(Memory<byte>.Empty, _stopToken).ConfigureAwait(false);
                 buffer = ArrayPool<byte>.Shared.Rent(Frames.MaxBatchBytes);
                 var buffered = 0;
                 while (IsAvailable)
                 {
-                    var read = await _tls.ReadAsync(buffer.AsMemory(buffered), _stopToken).ConfigureAwait(false);
+                    var read = await _stream.ReadAsync(buffer.AsMemory(buffered), _stopToken).ConfigureAwait(false);
                     if (read == 0)
                         return;
                     var available = buffered + read;
@@ -572,7 +572,7 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
                     break;
 
                 var prefix = buffer.AsMemory(bodyOffset, available - bodyOffset);
-                var large = await BinaryClientProtocol.ReadPartialReplyAsync(_tls, pending.Parser, status, size, buffer, prefix, _stopToken).ConfigureAwait(false);
+                var large = await BinaryClientProtocol.ReadPartialReplyAsync(_stream, pending.Parser, status, size, buffer, prefix, _stopToken).ConfigureAwait(false);
                 PublishReply(id, pending, in large);
                 return available;
             }
