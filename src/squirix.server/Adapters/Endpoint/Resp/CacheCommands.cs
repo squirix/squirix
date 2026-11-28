@@ -168,6 +168,9 @@ internal sealed partial class CacheCommands
     {
         if (!HasValidArity(operation, request))
             return Response.Arity;
+        if (operation == BinaryOperation.GetValue && _dispatch.HasSoleOwner)
+            return await ReadUtf8Async(request, call).ConfigureAwait(false);
+
         var key = ReadKey(request[1].Span);
         if (key == null)
             return InvalidKey;
@@ -199,6 +202,20 @@ internal sealed partial class CacheCommands
                 context).ConfigureAwait(false),
             _ => new BinaryResponse(FrameStatus.Unimplemented),
         };
+        return FromBinaryResult(request, result);
+    }
+
+    private async ValueTask<Response> ReadUtf8Async(RequestReader request, BinaryRequestContext call)
+    {
+        if (!CacheKeyValidator.TryPrepareUtf8(CacheName, request[1], out var key))
+            return InvalidKey;
+
+        var deadline = new ServerDeadlineBudget(TimeProvider.System, RpcAttemptTimeout.OperationDeadline, TimeProvider.System.GetTimestamp());
+        var result = await _dispatch.DispatchAsync(
+            CacheOperationNames.Get,
+            key,
+            static (ops, input, token, context) => ops.Reads.GetRespValueUtf8Async(input, context, token),
+            new BinaryDispatch.Request(call, deadline, Task.CompletedTask, ReportUnknownMutationOutcome: true)).ConfigureAwait(false);
         return FromBinaryResult(request, result);
     }
 

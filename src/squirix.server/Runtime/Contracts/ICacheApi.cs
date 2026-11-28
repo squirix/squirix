@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
@@ -14,6 +15,9 @@ internal interface ICacheApi<T>
     ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string key, CancellationToken cancellationToken, ICacheRequestContext? context = null);
 
     ValueTask<NodeCacheValueResult<T>> GetValueAsync(string key, CancellationToken cancellationToken, ICacheRequestContext? context = null);
+
+    ValueTask<NodeCacheValueResult<T>> GetValueUtf8Async(Utf8CacheKey key, CancellationToken cancellationToken, ICacheRequestContext? context = null) =>
+        GetValueAsync(Encoding.UTF8.GetString(key.Bytes.Span), cancellationToken, context);
 
     ValueTask<bool> RemoveAsync(string operationId, string key, CancellationToken cancellationToken, ICacheRequestContext? context = null);
 

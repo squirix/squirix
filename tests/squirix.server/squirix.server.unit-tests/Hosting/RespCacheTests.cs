@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Core;
+using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.TestKit;
 using Squirix.Transport.Binary;
@@ -72,11 +73,39 @@ public sealed class RespCacheTests
         await ExchangeAsync(stream, RespTestHost.Command("GET", "otherKind"), "-WRONGTYPE operation against a key holding the wrong kind of value\r\n", cancellationToken);
     }
 
-    /// <summary>Local RESP reads share the stored snapshot and retain it across an overwrite.</summary>
+    /// <summary>RESP finds a native UTF-16 key in both plain and packed pages.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Timeout(30_000)]
-    public async Task ReadsShareSnapshotAcrossOverwrite(CancellationToken cancellationToken)
+    public async Task ReadsNativeUnicodeKeyAfterPageSeal(CancellationToken cancellationToken)
+    {
+        await using var host = await RespTestHost.StartAsync(cancellationToken);
+        await using var stream = await host.ConnectAsync(cancellationToken);
+        var native = host.Server.Services.GetRequiredService<RoutedCacheOperations<StoredValue>>();
+        const string key = "cache:🦊:界";
+        _ = await WriteNativeAsync(native, key, new CacheValue { BinaryValue = Encoding.UTF8.GetBytes("yes") }, cancellationToken);
+
+        await ExchangeAsync(stream, RespTestHost.Command("GET", key), "$3\r\nyes\r\n", cancellationToken);
+        await FillSlotPageAsync(native, cancellationToken);
+
+        var stored = host.Server.Services.GetRequiredService<PhysicalCache<StoredValue>>().GetValue(new CacheKey("resp", key), cancellationToken);
+        _ = await Assert.That(stored.Value.IsSlice).IsTrue();
+        await ExchangeAsync(stream, RespTestHost.Command("GET", key), "$3\r\nyes\r\n", cancellationToken);
+        await ExchangeAsync(stream, RespTestHost.Command("GET", "cache:🦉:界"), "$-1\r\n", cancellationToken);
+
+        byte[] invalid = [.. "*2\r\n$3\r\nGET\r\n$1\r\n"u8, 255, .. "\r\n"u8];
+        await stream.WriteAsync(invalid, cancellationToken);
+        await ReadReplyAsync(stream, "-ERR invalid cache key\r\n", cancellationToken);
+    }
+
+    /// <summary>Both wire formats retain the original bytes across an overwrite.</summary>
+    /// <param name="resp">Whether to read through the RESP peer mapping.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    [Timeout(30_000)]
+    public async Task ReadsKeepSnapshotAcrossOverwrite(bool resp, CancellationToken cancellationToken)
     {
         await using var host = await RespTestHost.StartAsync(cancellationToken);
         var cache = host.Server.Services.GetRequiredService<RoutedCacheOperations<StoredValue>>();
@@ -85,13 +114,26 @@ public sealed class RespCacheTests
         byte[] updated = [2, 0, 13, 10];
         _ = await WriteNativeAsync(cache, request.Key, new CacheValue { BinaryValue = original }, cancellationToken);
 
-        var first = await cache.Reads.GetRespValueAsync(request, cancellationToken);
-        var second = await cache.Reads.GetRespValueAsync(request, cancellationToken);
-        _ = await WriteNativeAsync(cache, request.Key, new CacheValue { BinaryValue = updated }, cancellationToken);
-        var replacement = await cache.Reads.GetRespValueAsync(request, cancellationToken);
+        await FillSlotPageAsync(cache, cancellationToken);
+        var physical = host.Server.Services.GetRequiredService<PhysicalCache<StoredValue>>();
+        var stored = physical.GetValue(new CacheKey("resp", request.Key), cancellationToken);
+        _ = await Assert.That(stored.Value.IsSlice).IsTrue();
 
-        _ = await Assert.That(first.Value!.BinaryValue.Span.Overlaps(second.Value!.BinaryValue.Span, out var offset)).IsTrue();
-        _ = await Assert.That(offset).IsEqualTo(0);
+        var first = await (resp
+            ? cache.Reads.GetRespValueAsync(request, cancellationToken)
+            : cache.Reads.GetValueAsync(request, cancellationToken));
+        var second = await (resp
+            ? cache.Reads.GetRespValueAsync(request, cancellationToken)
+            : cache.Reads.GetValueAsync(request, cancellationToken));
+        _ = await WriteNativeAsync(cache, request.Key, new CacheValue { BinaryValue = updated }, cancellationToken);
+        var replacement = await (resp
+            ? cache.Reads.GetRespValueAsync(request, cancellationToken)
+            : cache.Reads.GetValueAsync(request, cancellationToken));
+
+        _ = await Assert.That(first.Value!.BinaryValue.Span.Overlaps(stored.Value.Memory.Span)).IsEqualTo(resp);
+        _ = await Assert.That(first.Value.BinaryValue.Span.Overlaps(second.Value!.BinaryValue.Span, out var offset)).IsEqualTo(resp);
+        if (resp)
+            _ = await Assert.That(offset).IsEqualTo(0);
         _ = await Assert.That(first.Value.BinaryValue.Span.SequenceEqual(original)).IsTrue();
         _ = await Assert.That(replacement.Value!.BinaryValue.Span.SequenceEqual(updated)).IsTrue();
     }
@@ -136,6 +178,25 @@ public sealed class RespCacheTests
         await ExchangeAsync(stream, commands, "-NOAUTH Authentication required.\r\n+OK\r\n-NOPERM cache operation denied\r\n$-1\r\n$-1\r\n", cancellationToken);
     }
 
+    /// <summary>A local UTF-8 read reuses the single admission slot already acquired for the request.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Timeout(30_000)]
+    public async Task ReusesAdmissionForUtf8Read(CancellationToken cancellationToken)
+    {
+        await using var host = await RespTestHost.StartAsync(cancellationToken, configure: static options =>
+        {
+            options.Backpressure.MaxInFlight = 1;
+            options.Backpressure.SlowdownThreshold = 1;
+            options.Backpressure.MaxSlowdownDelay = TimeSpan.Zero;
+            options.Backpressure.MaxQueue = 0;
+        });
+        await using var stream = await host.ConnectAsync(cancellationToken);
+        const string key = "ключ-🦊";
+        await ExchangeAsync(stream, RespTestHost.Command("SET", key, "hit"), "+OK\r\n", cancellationToken);
+        await ExchangeAsync(stream, RespTestHost.Command("GET", key), "$3\r\nhit\r\n", cancellationToken);
+    }
+
     /// <summary>An overloaded read reports a server error instead of looking like a cache miss.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -172,6 +233,16 @@ public sealed class RespCacheTests
         var bytes = new byte[Encoding.UTF8.GetByteCount(expected)];
         await stream.ReadExactlyAsync(bytes, cancellationToken);
         _ = await Assert.That(Encoding.UTF8.GetString(bytes)).IsEqualTo(expected);
+    }
+
+    private static async Task FillSlotPageAsync(RoutedCacheOperations<StoredValue> cache, CancellationToken cancellationToken)
+    {
+        var fill = Encoding.UTF8.GetBytes("ok");
+        for (var i = 0; i < SlotPageBase.Capacity; i++)
+        {
+            var key = i.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            _ = await WriteNativeAsync(cache, key, new CacheValue { BinaryValue = fill }, cancellationToken);
+        }
     }
 
     private static ValueTask<SetAsyncResponse> WriteNativeAsync(RoutedCacheOperations<StoredValue> native, string key, CacheValue value, CancellationToken cancellationToken) =>

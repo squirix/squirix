@@ -48,6 +48,12 @@ internal sealed class ValidationCacheDecorator<T> : IRequestCache<T>
         return _inner.GetValueForRequestAsync(cacheName, key, cancellationToken, request);
     }
 
+    public ValueTask<NodeCacheValueResult<T>> GetValueUtf8Async(string cacheName, Utf8CacheKey key, ICacheRequestContext? request, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return _inner.GetValueUtf8ForRequestAsync(cacheName, in key, cancellationToken, request);
+    }
+
     public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken)
     {
         _ = CacheKeyValidator.Validate(key, nameof(key), request ?? _keyValidation);

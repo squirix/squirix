@@ -60,13 +60,13 @@ internal readonly record struct CacheSlot<T>
 
     internal CacheEntryRead<T> ReadLocked() => new(Value, Version, ExpiresUtc, Tags);
 
-    internal bool MatchesPublished(CacheKey key, ref bool unsure)
+    internal bool MatchesPublished(in CacheLookupKey key, ref bool unsure)
     {
         var sequence = _cells.Sequence;
         var payload = RawPayload;
         Interlocked.MemoryBarrier();
         if ((sequence & 1) == 0 && _cells.Sequence == sequence && IsStored)
-            return payload.Matches(key);
+            return payload.Matches(in key);
 
         unsure = true;
         return false;

@@ -47,6 +47,12 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : IRequestCache<T>
         request,
         cancellationToken);
 
+    public ValueTask<NodeCacheValueResult<T>> GetValueUtf8Async(string cacheName, Utf8CacheKey key, ICacheRequestContext? request, CancellationToken cancellationToken) => WithMappingAsync(
+        static (inner, args, ct, context) => inner.GetValueUtf8ForRequestAsync(args.CacheName, in args.Key, ct, context),
+        (CacheName: cacheName, Key: key),
+        request,
+        cancellationToken);
+
     public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken) => WithMappingAsync(
         static (inner, args, ct, context) => inner.RemoveForRequestAsync(args.OperationId, args.CacheName, args.Key, ct, context),
         new MutationKeyArgs(operationId, cacheName, key),

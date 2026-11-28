@@ -59,6 +59,15 @@ internal sealed class RoutedCacheOperations<T>
             _keyValidation = router.KeyContext;
         }
 
+        internal bool HasSoleOwner => _router.HasSoleOwner;
+
+        internal async ValueTask<GetValueAsyncResponse> GetRespValueUtf8Async(Utf8CacheKey key, ICacheRequestContext? context, CancellationToken cancellationToken)
+        {
+            _router.EnsureNotFenced();
+            var result = await ApiForRequest(Resp.CacheCommands.CacheName).GetValueUtf8Async(key, cancellationToken, context).ConfigureAwait(false);
+            return ToRespValue(result);
+        }
+
         internal ValueTask<GetDistributedAsyncResponse> GetDistributedAsync(GetDistributedAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => _router.ExecuteAsync(
             request.CacheName,
             request.Key,
@@ -106,6 +115,22 @@ internal sealed class RoutedCacheOperations<T>
             },
             cancellationToken,
             (deadlineBudget, context));
+
+        private static GetValueAsyncResponse ToRespValue(NodeCacheValueResult<T> result)
+        {
+            if (!result.Found)
+                return new GetValueAsyncResponse();
+
+            // A hit without a value represents a type mismatch to the RESP adapter.
+            if (result.Value is not StoredValue { Kind: StoredValueKind.Binary } value)
+                return new GetValueAsyncResponse { Found = true };
+            var bytes = value.Memory;
+
+            // The value owns its bytes or references an immutable packed-page slice.
+            return bytes.Length > EntryLimits.MaxRespBulkBytes
+                ? throw new ServerCallException(FrameStatus.OutOfRange, "The cached binary value exceeds the response size limit.")
+                : new GetValueAsyncResponse { Found = true, Value = new CacheValue { BinaryValue = bytes } };
+        }
 
         private ValueTask<GetValueAsyncResponse> GetValueAsync(GetValueAsyncRequest request, bool resp, ServerDeadlineBudget? deadlineBudget, ICacheRequestContext? context, CancellationToken cancellationToken) => _router.ExecuteAsync(
             request.CacheName,
@@ -161,18 +186,8 @@ internal sealed class RoutedCacheOperations<T>
         {
             SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, context ?? _keyValidation);
             var result = await ApiForRequest(request.CacheName).GetValueAsync(request.Key, cancellationToken, context).ConfigureAwait(false);
-            if (resp && result.Found)
-            {
-                // A hit without a value represents a type mismatch to the RESP adapter.
-                if (result.Value is not StoredValue { Kind: StoredValueKind.Binary } value)
-                    return new GetValueAsyncResponse { Found = true };
-                var bytes = value.Memory;
-
-                // The value owns its bytes or references an immutable packed-page slice.
-                return bytes.Length > EntryLimits.MaxRespBulkBytes
-                    ? throw new ServerCallException(FrameStatus.OutOfRange, "The cached binary value exceeds the response size limit.")
-                    : new GetValueAsyncResponse { Found = true, Value = new CacheValue { BinaryValue = bytes } };
-            }
+            if (resp)
+                return ToRespValue(result);
 
             var response = new GetValueAsyncResponse { Found = result.Found };
             if (result.Found)

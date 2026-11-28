@@ -87,7 +87,11 @@ internal sealed class OwnerRouter
         _replicaGroups = replicaGroups;
     }
 
+    internal bool HasSoleOwner => _soleOwner != null;
+
     internal IRoutedKeyContext? KeyContext { get; init; }
+
+    internal void EnsureNotFenced() => _ringAgreement.EnsureNotFenced();
 
     /// <summary>Runs a single-key call on this node or forwards it to the leader of the key's group.</summary>
     /// <typeparam name="TState">The state the call delegates read.</typeparam>
