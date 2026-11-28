@@ -230,10 +230,10 @@ internal sealed class CallPolicy : ICallPolicy
                     var attempt = 0;
                     Exception? last = null;
 
-                    while (OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && attempt < _maxAttempts && !IsSharedBudgetSpent(budget))
+                    while (OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && attempt < _maxAttempts && HasAttemptBudget(budget, sharedClock, out var remaining))
                     {
                         attempt++;
-                        var attemptScope = CreateAttemptScope(budget, sharedClock && effectiveToken == cancellationToken, nativeTransport, effectiveToken, out var attemptBoundsBudget, out var expires);
+                        var attemptScope = CreateAttemptScope(remaining, sharedClock && effectiveToken == cancellationToken, nativeTransport, effectiveToken, out var attemptBoundsBudget, out var expires);
                         var attemptToken = attemptScope?.Token ?? effectiveToken;
                         Exception failure;
                         try
@@ -269,6 +269,12 @@ internal sealed class CallPolicy : ICallPolicy
             }
         }
 
+        private static bool HasAttemptBudget(DeadlineBudget? budget, bool sharedClock, out TimeSpan? remaining)
+        {
+            remaining = budget?.Remaining;
+            return !sharedClock || remaining > TimeSpan.Zero;
+        }
+
         private static Exception MapLastAttemptFailure(Exception? last) => last switch
         {
             OperationCanceledException => new SquirixTransportException(new CallStatus(CacheTransportStatusCode.DeadlineExceeded, "All attempts timed out.")),
@@ -293,9 +299,8 @@ internal sealed class CallPolicy : ICallPolicy
             }
         }
 
-        private TimedCancellation? CreateAttemptScope(DeadlineBudget? budget, bool sharedClockBudget, bool nativeTransport, CancellationToken effectiveToken, out bool attemptBoundsBudget, out long expires)
+        private TimedCancellation? CreateAttemptScope(TimeSpan? remainingBudget, bool sharedClockBudget, bool nativeTransport, CancellationToken effectiveToken, out bool attemptBoundsBudget, out long expires)
         {
-            var remainingBudget = budget?.Remaining;
             var remaining = GetAttemptTimeoutForRemaining(remainingBudget);
 
             attemptBoundsBudget = sharedClockBudget && remainingBudget is { } bound && remaining >= bound;
