@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Buffers.Text;
 using System.IO;
 using System.Threading;
@@ -23,6 +24,16 @@ internal static class Reply
         await stream.WriteAsync(FormatNumber("$"u8[0], value.Length), cancellationToken).ConfigureAwait(false);
         await stream.WriteAsync(value, cancellationToken).ConfigureAwait(false);
         await stream.WriteAsync(Terminator, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static void AppendNumber(IBufferWriter<byte> buffer, byte prefix, long value)
+    {
+        Span<byte> bytes = stackalloc byte[23];
+        bytes[0] = prefix;
+        _ = Utf8Formatter.TryFormat(value, bytes[1..21], out var written);
+        bytes[written + 1] = 13;
+        bytes[written + 2] = 10;
+        buffer.Write(bytes[..(written + 3)]);
     }
 
     private static ReadOnlyMemory<byte> FormatNumber(byte prefix, long value)

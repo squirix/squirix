@@ -1,7 +1,5 @@
 using System;
-using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
+using System.Buffers;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Adapters.Endpoint.Resp;
@@ -34,11 +32,26 @@ internal readonly record struct Response
 
     internal static Response Integer(long value) => new(ResponseKind.Integer, number: value);
 
-    internal ValueTask WriteAsync(Stream stream, bool resp3, CancellationToken cancellationToken) => _kind switch
+    internal void AppendTo(IBufferWriter<byte> buffer, bool resp3)
     {
-        ResponseKind.Null => Reply.WriteNullAsync(stream, resp3, cancellationToken),
-        ResponseKind.Bulk => Reply.WriteBulkAsync(stream, _data, cancellationToken),
-        ResponseKind.Integer => Reply.WriteIntegerAsync(stream, _number, cancellationToken),
-        _ => stream.WriteAsync(_data, cancellationToken),
-    };
+        switch (_kind)
+        {
+            case ResponseKind.Null:
+                buffer.Write(resp3 ? "_\r\n"u8 : "$-1\r\n"u8);
+                break;
+            case ResponseKind.Bulk:
+                Reply.AppendNumber(buffer, "$"u8[0], _data.Length);
+                buffer.Write(_data.Span);
+                buffer.Write("\r\n"u8);
+                break;
+            case ResponseKind.Integer:
+                Reply.AppendNumber(buffer, ":"u8[0], _number);
+                break;
+            case ResponseKind.Encoded:
+                buffer.Write(_data.Span);
+                break;
+            default:
+                throw new InvalidOperationException("Unknown response kind.");
+        }
+    }
 }

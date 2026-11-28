@@ -58,6 +58,14 @@ internal sealed class RequestReader
         }
     }
 
+    internal bool TryReadBuffered()
+    {
+        _start += _frameBytes;
+        _frameBytes = 0;
+        Count = 0;
+        return _start != _end && TryParseFrame();
+    }
+
     private static bool TryReadHeader(ReadOnlySpan<byte> bytes, ref int position, byte prefix, int maximum, out int length)
     {
         length = 0;
