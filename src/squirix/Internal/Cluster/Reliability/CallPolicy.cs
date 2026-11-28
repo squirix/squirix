@@ -477,7 +477,8 @@ internal sealed class CallPolicy : ICallPolicy
             return failure switch
             {
                 SquirixTransportException rpc when rpc.Status.PayloadTooLarge || CommitOutcomeUnknownDetail.Matches(rpc.Status.Detail) => AttemptFailure.Stop(rpc),
-                _ when attemptBoundsBudget && attemptToken.IsCancellationRequested && !cancellationToken.IsCancellationRequested => throw CreateBudgetExceeded(),
+                _ when attemptBoundsBudget && !cancellationToken.IsCancellationRequested &&
+                    (attemptToken.IsCancellationRequested || failure is SquirixTransportException { ConnectAttemptTimedOut: true }) => throw CreateBudgetExceeded(),
                 OperationCanceledException oce => await MapOperationCanceledFailureAsync(oce, attempt, deadlineBudget, effectiveToken, cancellationToken, attemptToken).ConfigureAwait(false),
                 SquirixTransportException rx => await MapRpcFailureAsync(rx, attempt, deadlineBudget, effectiveToken, cancellationToken).ConfigureAwait(false),
                 HttpRequestException http => await MapHttpFailureAsync(http, attempt, deadlineBudget, effectiveToken).ConfigureAwait(false),

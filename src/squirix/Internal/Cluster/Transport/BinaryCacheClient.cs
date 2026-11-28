@@ -164,7 +164,10 @@ internal sealed class BinaryCacheClient : IAsyncDisposable
         catch (OperationCanceledException error) when (connection == null && !options.CallerToken.IsCancellationRequested)
         {
             throw new SquirixTransportException(
-                new CallStatus(CacheTransportStatusCode.Unavailable, "Unable to establish the binary connection within the attempt budget.", error));
+                new CallStatus(CacheTransportStatusCode.Unavailable, "Unable to establish the binary connection within the attempt budget.", error))
+            {
+                ConnectAttemptTimedOut = deadline?.IsCancellationRequested == true,
+            };
         }
         catch (Exception error) when (error is IOException or SocketException or InvalidDataException)
         {
