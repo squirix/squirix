@@ -69,6 +69,11 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
         new SetEntryArgs<T>(operationId, cacheName, key, entry),
         cancellationToken);
 
+    public ValueTask<bool> TryReplaceEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) => WithMappingAsync(
+        static (inner, args, ct) => inner.TryReplaceEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
+        new SetEntryArgs<T>(operationId, cacheName, key, entry),
+        cancellationToken);
+
     public ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
         WithMappingAsync(
             static (inner, args, ct) => inner.AddOrGetAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),

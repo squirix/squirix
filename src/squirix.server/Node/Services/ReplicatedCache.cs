@@ -99,6 +99,10 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<StoredValue>
         new(_committers.ForKey(cacheName, key).CommitSetAsync(operationId, cacheName, key, entry, cancellationToken));
 
     /// <inheritdoc />
+    public ValueTask<bool> TryReplaceEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) =>
+        new(_committers.ForKey(cacheName, key).CommitReplaceEntryAsync(operationId, cacheName, key, entry, cancellationToken));
+
+    /// <inheritdoc />
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
         new(_committers.ForKey(cacheName, key).CommitTouchAsync(operationId, cacheName, key, expiration, cancellationToken));
 

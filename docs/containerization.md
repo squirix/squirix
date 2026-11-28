@@ -109,6 +109,7 @@ docker run --rm \
 
 Port **5000** carries the binary cache protocol over TLS. Port **5002** serves management HTTP/1.1 over TLS.
 For local management access with `docker run`, add `-p 127.0.0.1:5002:5002` to the command.
+To expose RESP on a Squirix container, see [RESP Docker settings](resp.md#docker).
 
 Endpoints (three-node RF=3 `docker compose` example):
 

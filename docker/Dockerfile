@@ -12,6 +12,7 @@ COPY BannedSymbols.Reflection.txt ./
 COPY BannedSymbols.Time.txt ./
 COPY .globalconfig ./
 COPY .editorconfig ./
+COPY src/shared/BuildMetadata.targets src/shared/
 COPY src/squirix/Squirix.csproj src/squirix/
 COPY src/squirix.server/Squirix.Server.csproj src/squirix.server/
 COPY src/squirix.server.host/Squirix.Server.Host.csproj src/squirix.server.host/

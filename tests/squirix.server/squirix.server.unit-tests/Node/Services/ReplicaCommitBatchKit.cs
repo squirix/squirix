@@ -3,8 +3,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
+using Squirix.Server.Node.App;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Logging;
@@ -30,13 +32,19 @@ internal static class ReplicaCommitBatchKit
     internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, ScriptedApplyCache local, IReplicaRpcGateway gateway, TimeProvider budgetTime) =>
         CreateCommitter(registry, local, gateway, (budgetTime, null));
 
-    internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, ScriptedApplyCache local, IReplicaRpcGateway gateway, (TimeProvider BudgetTime, ReplicationMetrics? Metrics) options) =>
+    internal static ReplicaGroupCommitter CreateCommitter(
+        ReplicaGroupRegistry registry,
+        ILogicalNamespacedCache<StoredValue> local,
+        IReplicaRpcGateway gateway,
+        (TimeProvider BudgetTime, ReplicationMetrics? Metrics) options,
+        ReplacementAdmission<StoredValue>? replacementAdmission = null) =>
         new(registry, new TwoNodeLocator(), gateway, local, (OwnedGroup, OwnedGroup), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
             Clock = TimeProvider.System,
             ShutdownTimeProvider = TimeProvider.System,
             BudgetTimeProvider = options.BudgetTime,
             Metrics = options.Metrics,
+            ReplacementAdmission = replacementAdmission,
             Recovery = RecoveryLifecycle.Recovered(),
             Applier = new ReplicaGroupApplier(local, NullLogger.Instance, OwnedGroup, OwnedGroup),
             CommitBudget = SmallBudget,

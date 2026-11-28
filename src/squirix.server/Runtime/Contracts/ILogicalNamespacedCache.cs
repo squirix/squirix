@@ -19,8 +19,11 @@ internal interface ILogicalNamespacedCache<T>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The value and deadline of the entry, or a miss.</returns>
     /// <remarks>Layers that can read without building the entry override it; the default reads the entry.</remarks>
-    ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        ValueWithDeadlineOfAsync(GetEntryAsync(cacheName, key, cancellationToken));
+    async ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        var entry = await GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        return entry == null ? default : new NodeCacheValueRead<T>(true, entry.Value, entry.ExpiresUtc);
+    }
 
     ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken);
 
@@ -71,14 +74,8 @@ internal interface ILogicalNamespacedCache<T>
     ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, int? encodedLength, CancellationToken cancellationToken) =>
         TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
 
-    ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken);
+    ValueTask<bool> TryReplaceEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        ValueTask.FromException<bool>(new NotSupportedException("Conditional replacement is unavailable for this cache."));
 
-    /// <summary>Takes the value and the deadline of an entry read.</summary>
-    /// <param name="reading">The entry read.</param>
-    /// <returns>The value and deadline of the entry, or a miss when the read found none.</returns>
-    private static async ValueTask<NodeCacheValueRead<T>> ValueWithDeadlineOfAsync(ValueTask<NodeCacheEntry<T>?> reading)
-    {
-        var entry = await reading.ConfigureAwait(false);
-        return entry == null ? default : new NodeCacheValueRead<T>(true, entry.Value, entry.ExpiresUtc);
-    }
+    ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken);
 }

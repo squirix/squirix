@@ -47,6 +47,8 @@ internal sealed class MultiNodeStartOptions
     /// <summary>Gets the replica factor applied to every node; 1 preserves single-copy routing.</summary>
     internal int ReplicaCount { get; init; } = 1;
 
+    internal Func<string, bool>? EnableRespOnNode { get; init; }
+
     /// <summary>Gets optional external auth settings applied to both nodes.</summary>
     internal TestNodeSecurityOptions? Security { get; init; }
 

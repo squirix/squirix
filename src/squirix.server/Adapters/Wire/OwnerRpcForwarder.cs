@@ -8,6 +8,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Backpressure;
+using Squirix.Server.Runtime.Invocation;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
 
@@ -77,12 +78,13 @@ internal sealed class OwnerRpcForwarder
         static (client, r, ct) => client.SendAsync(PeerOperation.GetOrAdd, r, GetOrAddAsyncResponse.Parser, ct),
         cancellationToken);
 
-    internal Task<GetValueAsyncResponse> GetValueAsync(string owner, GetValueAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
-        owner,
-        CacheOperationNames.Get,
-        request,
-        static (client, r, ct) => client.SendAsync(PeerOperation.GetValue, r, GetValueAsyncResponse.Parser, ct),
-        cancellationToken);
+    internal Task<GetValueAsyncResponse> GetValueAsync(string owner, GetValueAsyncRequest request, CancellationToken cancellationToken, bool resp = false)
+    {
+        Func<IPeerClient, GetValueAsyncRequest, CancellationToken, Task<GetValueAsyncResponse>> send = resp
+            ? static (client, r, ct) => client.SendAsync(PeerOperation.GetRespValue, r, GetValueAsyncResponse.Parser, ct)
+            : static (client, r, ct) => client.SendAsync(PeerOperation.GetValue, r, GetValueAsyncResponse.Parser, ct);
+        return ForwardAsync(owner, CacheOperationNames.Get, request, send, cancellationToken);
+    }
 
     internal Task<RefreshDistributedAsyncResponse> RefreshDistributedAsync(string owner, RefreshDistributedAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
         owner,
@@ -103,6 +105,13 @@ internal sealed class OwnerRpcForwarder
         CacheOperationNames.RemoveExpiration,
         request,
         static (client, r, ct) => client.SendAsync(PeerOperation.RemoveExpiration, r, RemoveExpirationAsyncResponse.Parser, ct),
+        cancellationToken);
+
+    internal Task<UpdateAsyncResponse> ReplaceEntryIfPresentAsync(string owner, SetEntryAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+        owner,
+        CacheOperationNames.Update,
+        request,
+        static (client, r, ct) => client.SendAsync(PeerOperation.ReplaceEntryIfPresent, r, UpdateAsyncResponse.Parser, ct),
         cancellationToken);
 
     internal Task<SetAsyncResponse> SetDistributedAsync(string owner, SetDistributedAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
@@ -135,6 +144,10 @@ internal sealed class OwnerRpcForwarder
 
     private static ServerCallException CreatePoolDisposedUnavailable() => new(FrameStatus.Unavailable, "ServerPeer client pool is disposed.");
 
+    private bool PreventsReplay<TRequest>(TRequest request) =>
+        (!_mutationReplay || RemoteInvocationContext.ReportsUnknownMutationOutcome) &&
+        request is not (GetEntryAsyncRequest or GetExpirationAsyncRequest or GetValueAsyncRequest or GetDistributedAsyncRequest);
+
     private async Task<TResponse> ForwardAsync<TRequest, TResponse>(
         string owner,
         string operation,
@@ -148,8 +161,7 @@ internal sealed class OwnerRpcForwarder
 
         // The call policy may make several attempts and rethrows only the last failure, so every attempt is recorded: a forward is reported as
         // unreachable only when no attempt connected.
-        var preventReplay = !_mutationReplay && request is not (GetEntryAsyncRequest or GetExpirationAsyncRequest or GetValueAsyncRequest or GetDistributedAsyncRequest);
-        var attempts = new ConnectAttempts(preventReplay);
+        var attempts = new ConnectAttempts(PreventsReplay(request));
         using (lease)
         {
             try
@@ -235,10 +247,11 @@ internal sealed class OwnerRpcForwarder
         private static bool IsOutcomeUncertain(Exception error) => error switch
         {
             ServerCallException rpc =>
-                rpc.StatusCode is FrameStatus.Unavailable or FrameStatus.Cancelled or FrameStatus.DeadlineExceeded or FrameStatus.Internal
+                rpc.StatusCode is FrameStatus.Unavailable or FrameStatus.Cancelled or FrameStatus.DeadlineExceeded or FrameStatus.Internal or FrameStatus.DataLoss
                 && !RingMismatchFailure.IsRefusal(rpc)
                 && !StaleRouteSignals.TryReadStale(rpc, out _)
-                && !string.Equals(rpc.Message, ServerOpContract.NoLeaderAuthorityDetail, StringComparison.Ordinal),
+                && rpc.Message is not (ServerOpContract.NoLeaderAuthorityDetail or ServerOpContract.NoWriteMajorityDetail or ServerOpContract.LeaderChangedDetail
+                    or ServerOpContract.ReadIndexUnappliedDetail or ServerOpContract.ReadQuorumUnconfirmedDetail),
             OperationCanceledException or HttpRequestException or IOException => true,
             _ => false,
         };

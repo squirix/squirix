@@ -12,9 +12,9 @@ namespace Squirix.Server.TestKit.Hosting;
 
 /// <summary>
 /// Simulates a lost response on the hop from an entry node to a key owner: the owner executes the forwarded mutation and records its outcome,
-/// but the entry node never receives the response and every further forward of that key from the entry node fails as unreachable.
+/// and the entry node loses the first response. The fault can also refuse subsequent attempts.
 /// </summary>
-/// <remarks>Only SetEntry, Remove, TryAddEntry, GetOrAdd and distributed access forwards of armed keys are affected.</remarks>
+/// <remarks>Only value reads, entry writes and distributed access forwards of armed keys are affected.</remarks>
 internal sealed class LostForwardResponseProbe
 {
     private readonly ConcurrentDictionary<string, KeyFault> _faults = new(StringComparer.Ordinal);
@@ -22,7 +22,9 @@ internal sealed class LostForwardResponseProbe
     /// <summary>Arms the fault for one key.</summary>
     /// <param name="key">The key whose first forwarded mutation loses its response.</param>
     /// <param name="afterOwnerExecuted">Runs once after the owner executed the first forward and before the entry node observes the loss.</param>
-    internal void Lose(string key, Func<Task> afterOwnerExecuted) => _faults[key] = new KeyFault(afterOwnerExecuted);
+    internal void Lose(string key, Func<Task> afterOwnerExecuted) => _faults[key] = new KeyFault(afterOwnerExecuted, false);
+
+    internal void LoseOnce(string key, Func<Task> afterOwnerExecuted) => _faults[key] = new KeyFault(afterOwnerExecuted, true);
 
     /// <summary>Gets the number of forwards the entry node attempted for the key, including the ones refused without reaching the owner.</summary>
     /// <param name="key">The armed key.</param>
@@ -57,12 +59,14 @@ internal sealed class LostForwardResponseProbe
         private int _attempts;
         private int _ownerExecutions;
 
-        internal KeyFault(Func<Task> afterOwnerExecuted)
+        internal KeyFault(Func<Task> afterOwnerExecuted, bool allowRetry)
         {
             AfterOwnerExecuted = afterOwnerExecuted;
+            AllowRetry = allowRetry;
         }
 
         internal Func<Task> AfterOwnerExecuted { get; }
+        internal bool AllowRetry { get; }
 
         internal int Attempts => Volatile.Read(ref _attempts);
 
@@ -91,6 +95,7 @@ internal sealed class LostForwardResponseProbe
             {
                 RemoveAsyncRequest r => r.Key,
                 GetDistributedAsyncRequest r => r.Key,
+                GetValueAsyncRequest r => r.Key,
                 GetOrAddAsyncRequest r => r.Key,
                 RefreshDistributedAsyncRequest r => r.Key,
                 SetEntryAsyncRequest r => r.Key,
@@ -100,11 +105,15 @@ internal sealed class LostForwardResponseProbe
             if (key == null || !_probe._faults.TryGetValue(key, out var fault))
                 return await _inner.SendAsync(operation, request, parser, cancellationToken).ConfigureAwait(false);
 
-            if (fault.NextAttempt() > 1)
+            var firstAttempt = fault.NextAttempt() == 1;
+            if (!firstAttempt && !fault.AllowRetry)
                 throw new ServerCallException(FrameStatus.Unavailable, "Injected: key owner connection is down.");
 
-            _ = await _inner.SendAsync(operation, request, parser, cancellationToken).ConfigureAwait(false);
+            var reply = await _inner.SendAsync(operation, request, parser, cancellationToken).ConfigureAwait(false);
             fault.MarkOwnerExecuted();
+            if (!firstAttempt)
+                return reply;
+
             await fault.AfterOwnerExecuted().ConfigureAwait(false);
             throw new ServerCallException(FrameStatus.Unavailable, "Injected: the owner response was lost.");
         }

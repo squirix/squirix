@@ -1,0 +1,21 @@
+<Project>
+    <Target Name="GenerateServerBuildMetadata" BeforeTargets="BeforeCompile;CoreCompile">
+        <PropertyGroup>
+            <ServerBuildMetadataFile>$(IntermediateOutputPath)BuildMetadata.g.cs</ServerBuildMetadataFile>
+            <ServerBuildMetadataSource>// &lt;auto-generated /&gt;
+namespace $(RootNamespace)%3B
+
+internal static class BuildMetadata
+{
+    internal const string InformationalVersion = "$(PackageVersion)"%3B
+}
+            </ServerBuildMetadataSource>
+        </PropertyGroup>
+        <WriteLinesToFile File="$(ServerBuildMetadataFile)" Lines="$(ServerBuildMetadataSource)"
+                          Overwrite="true" WriteOnlyWhenDifferent="true"/>
+        <ItemGroup>
+            <Compile Include="$(ServerBuildMetadataFile)"/>
+            <FileWrites Include="$(ServerBuildMetadataFile)"/>
+        </ItemGroup>
+    </Target>
+</Project>

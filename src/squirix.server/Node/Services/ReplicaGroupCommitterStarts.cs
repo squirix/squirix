@@ -76,7 +76,7 @@ internal static class ReplicaGroupCommitterStarts
             // followers that hold it; the entry commits like a recovered tail.
             var term = tenure?.TermFor(in status, committer.GroupId)
                        ?? (StaticLeaderTerm.TryResolve(in status, out var staticTerm) ? staticTerm : throw StaticTermExceeded(committer.GroupId, status.CurrentTerm));
-            var factory = new ReplicaMutationFactory(committer.Local, committer.GroupId, term, committer.Clock, committer.Log, committer.SelectCapacityVictim);
+            var factory = committer.CreateMutationFactory(term);
             if (tenure != null)
             {
                 read = await tenure.AppendNoopAsync(log, read, factory, committer.Probe.SelfId, cancellationToken).ConfigureAwait(false);
@@ -182,6 +182,13 @@ internal static class ReplicaGroupCommitterStarts
                 new ReplicaFollowerSenders.SenderTiming(committer.CommitBudget, committer.ShutdownBudget, committer.BudgetTimeProvider) { Replies = replies },
                 budget => ReplicaFollowerLog.ReplicaFollowerSenderLeakedOnShutdown(log, budget));
         }
+
+        private ReplicaMutationFactory CreateMutationFactory(ulong term) =>
+            new(committer.Local, committer.GroupId, term, committer.Clock, committer.Log, committer.SelectCapacityVictim)
+            {
+                ReplacementAdmission = committer.ReplacementAdmission,
+                HasMemberPressure = committer.ReplacementAdmission == null ? null : committer.HasMemberPressure,
+            };
 
         private Action<int, FollowerLogAppendResult>? CreateReplyObserver(ReplicaMemberPressure? pressure)
         {

@@ -25,6 +25,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
     private readonly DurableMutationExecutor _executor;
     private readonly ILogicalNamespacedCache<T> _inner;
     private readonly IJournalCoordinator _journal;
+    private readonly string? _orderedReadCacheName;
     private readonly ILocalCacheRawReader<T> _rawReader;
     private readonly TimeProvider _timeProvider;
 
@@ -34,6 +35,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         DurableMutationExecutor durableMutations,
         TimeProvider timeProvider,
         ILocalCacheRawReader<T> rawReader,
+        string? orderedReadCacheName = null,
         PhysicalCache<T>? capacityCache = null)
     {
         ArgumentNullException.ThrowIfNull(inner);
@@ -46,31 +48,43 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         _timeProvider = timeProvider;
         _rawReader = rawReader;
         _capacityCache = capacityCache;
+        _orderedReadCacheName = orderedReadCacheName;
         DistributedAccess = new DistributedAccessOperations(this);
     }
 
+    internal ReplacementAdmission<T>? ReplacementAdmission { private get; init; }
+
     private DateTime UtcNow => _timeProvider.GetUtcNow().UtcDateTime;
-
-    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        _inner.GetEntryAsync(cacheName, key, cancellationToken);
-
-    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        _inner.GetValueAsync(cacheName, key, cancellationToken);
-
-    public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        _inner.GetValueWithDeadlineAsync(cacheName, key, cancellationToken);
 
     public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
         var cacheKey = new CacheKey(cacheName, key);
+        var ordered = string.Equals(cacheName, _orderedReadCacheName, StringComparison.Ordinal);
         return _executor.ExecuteAsync(
             cacheKey,
-            static (_, _) => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
-            new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, RemoveJournalArgs Journal, RemoveMemoryArgs Memory), bool>(
-                (this, new RemoveJournalArgs(cacheKey), new RemoveMemoryArgs(operationId, cacheName, key)),
-                static (s, ownership, ct) => s.Self._journal.AppendRemoveAsync(ownership, s.Journal.CacheKey, ct),
-                static (s, ct) => s.Self._inner.RemoveAsync(s.Memory.OperationId, s.Memory.CacheName, s.Memory.Key, ct)),
+            ordered ? EvaluateRemovePreconditionAsync : static (_, _) => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
+            new DurableMutationPipeline<RemoveMutationArgs, bool>(
+                new RemoveMutationArgs(this, cacheKey, operationId, ordered ? new StrongBox<bool>() : null),
+                static (s, ownership, ct) => s.Self._journal.AppendRemoveAsync(ownership, s.Key, ct),
+                ordered ? ApplyOrderedRemoveAsync : static (s, ct) => s.Self._inner.RemoveAsync(s.OperationId, s.Key.Namespace, s.Key.Key, ct)),
             cancellationToken);
+
+        static async ValueTask<DurableMutationCondition<bool>> EvaluateRemovePreconditionAsync(
+            RemoveMutationArgs state, CancellationToken cancellationToken)
+        {
+            var current = await state.Self.ReadCurrentAsync(state.Key.Namespace, state.Key.Key, cancellationToken).ConfigureAwait(false);
+
+            // A missing value can still have a put in the journal, including a value expired by this process's clock.
+            state.RecordedPresence!.Value = current != null;
+            return DurableMutationCondition<bool>.Apply();
+        }
+
+        static async ValueTask<bool> ApplyOrderedRemoveAsync(RemoveMutationArgs state, CancellationToken cancellationToken)
+        {
+            // Report presence at the decision point even if the deadline passes while the journal flushes.
+            _ = await state.Self._inner.RemoveAsync(state.OperationId, state.Key.Namespace, state.Key.Key, cancellationToken).ConfigureAwait(false);
+            return state.RecordedPresence!.Value;
+        }
     }
 
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ExecuteDecidedUpsertAsync(
@@ -78,7 +92,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         cacheName,
         key,
         default(NoDecisionArgs),
-        static (current, _, _) => current.ExpiresUtc == null ? null : new NodeCacheEntry<T>(current.Value, current.Version, tags: current.Tags),
+        static (current, _, _, _) => current.ExpiresUtc == null ? null : new NodeCacheEntry<T>(current.Value, current.Version, tags: current.Tags),
         null,
         cancellationToken);
 
@@ -94,7 +108,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         cacheName,
         key,
         expiration,
-        static (current, now, ttl) => new NodeCacheEntry<T>(
+        static (current, now, ttl, _) => new NodeCacheEntry<T>(
             current.Value,
             current.Version,
             JournalEntryExpirationMaterializer.PinToJournalPrecision(now.SaturatedAdd(ttl)),
@@ -109,6 +123,21 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         return TryAddEntryWithPreparedPayloadAsync(operationId, cacheName, key, durable, prepared, cancellationToken);
     }
 
+    public ValueTask<bool> TryReplaceEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        ExecuteDecidedUpsertAsync(
+            string.Empty,
+            cacheName,
+            key,
+            (Admission: ReplacementAdmission, Key: new CacheKey(cacheName, key), Entry: entry),
+            static (current, now, args, upsert) =>
+            {
+                var replacement = JournalEntryExpirationMaterializer.ForDurableWrite(args.Entry, now);
+                upsert.ReserveGrowth(args.Admission, args.Key, current, replacement);
+                return replacement;
+            },
+            null,
+            cancellationToken);
+
     /// <inheritdoc />
     /// <remarks>The new value is validated first, so an oversized or unserializable value is rejected even when the key is absent.</remarks>
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
@@ -121,7 +150,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
             cacheName,
             key,
             value,
-            static (current, _, replacement) => new NodeCacheEntry<T>(
+            static (current, _, replacement, _) => new NodeCacheEntry<T>(
                 replacement,
                 current.Version,
                 JournalEntryExpirationMaterializer.PinToJournalPrecision(current.ExpiresUtc),
@@ -154,7 +183,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
             static (_, _) => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
             new DurableMutationPipeline<(JournalLoggingCacheDecorator<T> Self, PutJournalArgs Journal, SetMemoryArgs Memory), bool>(
                 (this, new PutJournalArgs(cacheKey, payload.Memory), new SetMemoryArgs(operationId, cacheName, key, entry, payload.Memory.Length, _capacityCache == null ? null : new CapacityDecision())),
-                static (s, ownership, ct) => s.Self.AppendPutAsync(in ownership, s.Journal.CacheKey, s.Journal.Payload, s.Memory.Capacity, ct),
+                static (s, ownership, ct) => CapacityDecision.AppendPutAsync(s.Self, in ownership, s.Journal.CacheKey, s.Journal.Payload, s.Memory.Capacity, ct),
                 static (s, ct) => s.Self.ApplySetEntryAsync(s.Memory, ct)),
             cancellationToken).ConfigureAwait(false);
     }
@@ -172,6 +201,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
     {
         var entry = state.Upsert.Entry ?? ThrowHelper.Throw<NodeCacheEntry<T>>(new InvalidOperationException("The decided entry was not prepared."));
         await state.Self._inner.SetEntryAsync(state.OperationId, state.CacheName, state.Key, entry, state.Upsert.Payload.Length, cancellationToken).ConfigureAwait(false);
+        state.Upsert.ReleaseGrowth();
         return true;
     }
 
@@ -183,7 +213,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         if (current == null)
             return DurableMutationCondition<bool>.Skip(false);
 
-        var decided = state.Decide(current, state.Self.UtcNow, state.Args);
+        var decided = state.Decide(current, state.Self.UtcNow, state.Args, state.Upsert);
         if (decided == null)
             return DurableMutationCondition<bool>.Skip(false);
 
@@ -215,7 +245,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
                 static async (s, ownership, ct) =>
                 {
                     using var payload = JournalEntryPayload.Encode(s.Args.Prepared);
-                    await s.Self.AppendPutAsync(in ownership, s.Args.CacheKey, payload.Memory, s.Args.Capacity, ct).ConfigureAwait(false);
+                    await CapacityDecision.AppendPutAsync(s.Self, in ownership, s.Args.CacheKey, payload.Memory, s.Args.Capacity, ct).ConfigureAwait(false);
                 },
                 static (s, ct) => s.Args.Capacity is { } capacity
                     ? ValueTask.FromResult(s.Self._capacityCache!.Upsert(s.Args.CacheKey, s.Args.Entry, s.Args.Prepared.EncodedLength, PhysicalCache<T>.WriteKind.JournaledTryAdd, ct, capacity.Victim))
@@ -238,25 +268,13 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         return true;
     }
 
-    private ValueTask AppendPutAsync(in JournalAppendContext ownership, CacheKey key, ReadOnlyMemory<byte> payload, CapacityDecision? capacity, CancellationToken cancellationToken)
-    {
-        if (capacity != null)
-        {
-            capacity.Victim = _capacityCache!.SelectCapacityVictim(key);
-            if (capacity.Victim is { } victim)
-                return _journal.AppendPutWithEvictionAsync(ownership, key, payload, victim.Key, cancellationToken);
-        }
-
-        return _journal.AppendPutAsync(ownership, key, payload, cancellationToken);
-    }
-
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     private async ValueTask<bool> ExecuteDecidedUpsertAsync<TArgs>(
         string operationId,
         string cacheName,
         string key,
         TArgs args,
-        Func<NodeCacheEntry<T>, DateTime, TArgs, NodeCacheEntry<T>?> decide,
+        Func<NodeCacheEntry<T>, DateTime, TArgs, DecidedUpsert, NodeCacheEntry<T>?> decide,
         PreparedJournalValue? preparedValue,
         CancellationToken cancellationToken)
     {
@@ -288,10 +306,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
     private readonly record struct PutJournalArgs(CacheKey CacheKey, ReadOnlyMemory<byte> Payload);
 
     [Immutable]
-    private readonly record struct RemoveJournalArgs(CacheKey CacheKey);
-
-    [Immutable]
-    private readonly record struct RemoveMemoryArgs(string OperationId, string CacheName, string Key);
+    private readonly record struct RemoveMutationArgs(JournalLoggingCacheDecorator<T> Self, CacheKey Key, string OperationId, StrongBox<bool>? RecordedPresence);
 
     [Immutable]
     private readonly record struct SetMemoryArgs(string OperationId, string CacheName, string Key, NodeCacheEntry<T> Entry, int EncodedLength, CapacityDecision? Capacity);
@@ -313,7 +328,7 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
         string CacheName,
         string Key,
         TArgs Args,
-        Func<NodeCacheEntry<T>, DateTime, TArgs, NodeCacheEntry<T>?> Decide,
+        Func<NodeCacheEntry<T>, DateTime, TArgs, DecidedUpsert, NodeCacheEntry<T>?> Decide,
         PreparedJournalValue? PreparedValue,
         DecidedUpsert Upsert);
 
@@ -324,20 +339,53 @@ internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespac
     [Mutable]
     private sealed class CapacityDecision
     {
-        internal CacheKey? Victim { get; set; }
+        internal CacheKey? Victim { get; private set; }
+
+        internal static ValueTask AppendPutAsync(JournalLoggingCacheDecorator<T> cache, in JournalAppendContext ownership, CacheKey key, ReadOnlyMemory<byte> payload, CapacityDecision? capacity, CancellationToken cancellationToken)
+        {
+            if (capacity != null)
+            {
+                capacity.Victim = cache._capacityCache!.SelectCapacityVictim(key);
+                if (capacity.Victim is { } victim)
+                    return cache._journal.AppendPutWithEvictionAsync(ownership, key, payload, victim.Key, cancellationToken);
+            }
+
+            return cache._journal.AppendPutAsync(ownership, key, payload, cancellationToken);
+        }
     }
 
     /// <summary>Carries the entry a precondition decided and its encoded journal payload from the precondition to the append and apply stages.</summary>
     [Mutable]
     private sealed class DecidedUpsert : IDisposable
     {
+        private ReplacementAdmission<T>? _admission;
         private PooledJournalPayload? _payload;
+        private long _reservedGrowth;
 
         internal NodeCacheEntry<T>? Entry { get; private set; }
 
         internal ReadOnlyMemory<byte> Payload => _payload?.Memory ?? ReadOnlyMemory<byte>.Empty;
 
-        public void Dispose() => _payload?.Dispose();
+        public void Dispose()
+        {
+            ReleaseGrowth();
+            _payload?.Dispose();
+        }
+
+        internal void ReserveGrowth(ReplacementAdmission<T>? admission, CacheKey key, NodeCacheEntry<T> current, NodeCacheEntry<T> replacement)
+        {
+            _reservedGrowth = admission?.ReserveJournalGrowth(key, current, replacement) ?? 0;
+            _admission = admission;
+        }
+
+        internal void ReleaseGrowth()
+        {
+            if (_reservedGrowth == 0)
+                return;
+
+            _admission!.ReleaseJournalGrowth(_reservedGrowth);
+            _reservedGrowth = 0;
+        }
 
         internal void Set(NodeCacheEntry<T> entry, PooledJournalPayload payload)
         {

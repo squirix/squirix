@@ -48,6 +48,9 @@ internal abstract class ReplicaCommitRequestBase
         Key = key;
     }
 
+    /// <summary>Gets or initializes a value indicating whether earlier writes must reach memory before this write is prepared.</summary>
+    internal bool CommitAlone { get; init; }
+
     /// <summary>Gets the error the write failed with; <see langword="null" /> when it succeeded or is not decided yet.</summary>
     internal Exception? Failure { get; private set; }
 

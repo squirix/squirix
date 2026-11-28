@@ -59,6 +59,9 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
     public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, int? encodedLength, CancellationToken cancellationToken) =>
         ValueTask.FromResult(_mutation.TryAdd(Key(cacheName, key), entry, cancellationToken, encodedLength));
 
+    public ValueTask<bool> TryReplaceEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        ValueTask.FromResult(_mutation.TryReplace(Key(cacheName, key), entry, cancellationToken));
+
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) =>
         ValueTask.FromResult(_mutation.Update(Key(cacheName, key), value, cancellationToken));
 

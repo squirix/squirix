@@ -19,13 +19,13 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class CachePipelineRegistration
 {
-    internal static NodeServices AddSquirixCachePipeline(this NodeServices services, bool persistenceEnabled = false, bool metricsEnabled = false, bool admitBeforeCommit = false)
+    internal static NodeServices AddSquirixCachePipeline(this NodeServices services, bool persistenceEnabled = false, bool metricsEnabled = false, bool admitBeforeCommit = false, string? orderedReadCacheName = null)
     {
         _ = services.Own(static sp => new ClientCache<StoredValue>(
             sp.Require<ILocalCacheReadOperations<StoredValue>>(),
             sp.Require<ILocalCacheMutationOperations<StoredValue>>()));
 
-        AddOwnershipGuardLayer(services, persistenceEnabled);
+        AddOwnershipGuardLayer(services, persistenceEnabled, orderedReadCacheName);
         AddCacheDecoratorChain(services, metricsEnabled, admitBeforeCommit);
         _ = services.Own<ILogicalNamespacedCache<StoredValue>>(static sp => sp.Require<TracingCacheDecorator<StoredValue>>());
         _ = services.Own<IDistributedCacheAccess>(static sp => new NodeDistributedCacheAccess(
@@ -158,7 +158,7 @@ internal static class CachePipelineRegistration
     private static ILogicalNamespacedCache<StoredValue> AfterMemoryAdmission(IServiceProvider services) =>
         services.Find<MemoryAdmissionCacheDecorator<StoredValue>>() is { } admission ? admission : ResolveLocalCache(services);
 
-    private static void AddOwnershipGuardLayer(NodeServices services, bool persistenceEnabled)
+    private static void AddOwnershipGuardLayer(NodeServices services, bool persistenceEnabled, string? orderedReadCacheName)
     {
         if (persistenceEnabled)
         {
@@ -166,13 +166,17 @@ internal static class CachePipelineRegistration
                 sp.Require<IJournalCoordinator>(),
                 sp.Require<IServerLoggerFactory>().CreateLogger<DurableMutationExecutor>(),
                 UsesJournaledCapacity(sp)));
-            _ = services.Own(static sp => new JournalLoggingCacheDecorator<StoredValue>(
+            _ = services.Own(sp => new JournalLoggingCacheDecorator<StoredValue>(
                 sp.Require<ClientCache<StoredValue>>(),
                 sp.Require<IJournalCoordinator>(),
                 sp.Require<DurableMutationExecutor>(),
                 sp.Require<TimeProvider>(),
                 sp.Require<ILocalCacheRawReader<StoredValue>>(),
-                UsesJournaledCapacity(sp) ? sp.Require<PhysicalCache<StoredValue>>() : null));
+                orderedReadCacheName,
+                UsesJournaledCapacity(sp) ? sp.Require<PhysicalCache<StoredValue>>() : null)
+            {
+                ReplacementAdmission = sp.Find<ReplacementAdmission<StoredValue>>(),
+            });
             _ = services.Own(static sp => new JournalPayloadPrepareCacheDecorator<StoredValue>(sp.Require<JournalLoggingCacheDecorator<StoredValue>>()));
             _ = services.Own(static sp => new OwnerLocalCache(sp.Require<JournalPayloadPrepareCacheDecorator<StoredValue>>()));
             return;

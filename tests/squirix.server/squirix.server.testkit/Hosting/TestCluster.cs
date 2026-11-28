@@ -436,6 +436,7 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             ServicesConfigure = WithCompactionInterval(startOptions?.ServicesConfigure, startOptions?.ReplicaLogCompactionInterval),
             TrackRequests = startOptions?.TrackRequests ?? false,
             ManagementUri = startOptions?.ManagementUri,
+            Resp = startOptions?.EnableResp == true ? new RespOptions { Enabled = true, Port = 0 } : null,
             MetricsEnabled = startOptions?.MetricsEnabled ?? false,
             PrometheusMetricsEnabled = startOptions?.PrometheusMetricsEnabled ?? false,
         };

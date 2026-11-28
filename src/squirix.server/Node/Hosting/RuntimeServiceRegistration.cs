@@ -94,6 +94,9 @@ internal static class RuntimeServiceRegistration
                 sp.Require<IMemoryUsageAccounting>(),
                 sp.Require<TopologyOptions>().NodeId,
                 sp.Find<Meter>()));
+            _ = services.Own(static sp => new ReplacementAdmission<StoredValue>(
+                sp.Require<PressureGate>(),
+                sp.Require<ICacheEntrySizeEstimator<StoredValue>>()));
             _ = services.Own<ICriticalMemoryPressureReader>(static sp => new CriticalMemoryPressureReader(
                 sp.Require<IMemoryPressureStateEvaluator>(),
                 sp.Require<IMemoryUsageAccounting>()));
@@ -188,6 +191,7 @@ internal static class RuntimeServiceRegistration
         public bool IsInternalOwnerInvocation => RemoteInvocationContext.IsInternalOwnerInvocation;
 
         /// <inheritdoc />
-        public RemoteInvocationScope EnterRemoteInvocation(bool isInternalOwnerInvocation) => RemoteInvocationContext.EnterRemoteInvocation(isInternalOwnerInvocation);
+        public RemoteInvocationScope EnterRemoteInvocation(bool isInternalOwnerInvocation, bool reportUnknownMutationOutcome) =>
+            RemoteInvocationContext.EnterRemoteInvocation(isInternalOwnerInvocation, reportUnknownMutationOutcome);
     }
 }

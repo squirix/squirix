@@ -19,6 +19,7 @@ namespace Squirix.Server;
 [JsonSerializable(typeof(SquirixServerPeerOptions))]
 [JsonSerializable(typeof(SquirixServerBackpressureOptions))]
 [JsonSerializable(typeof(SquirixServerJournalOptions))]
+[JsonSerializable(typeof(RespFileSettings))]
 [JsonSerializable(typeof(TriggerOptions))]
 [JsonSerializable(typeof(PressureSettings))]
 [JsonSerializable(typeof(PrometheusMetricsSettings))]

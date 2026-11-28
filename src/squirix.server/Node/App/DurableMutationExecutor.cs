@@ -32,8 +32,19 @@ internal sealed class DurableMutationExecutor
         _serializeNamespace = serializeNamespace;
     }
 
-    /// <summary>Gets the number of keys currently held or awaited by keyed mutations.</summary>
+    /// <summary>Gets the number of keys currently held or awaited by keyed cache operations.</summary>
     internal int HeldKeyCount => _keyLocks.Count;
+
+    internal async ValueTask<TResult> ReadUnderMutationLockAsync<TState, TResult>(
+        CacheKey key,
+        TState state,
+        Func<TState, CacheKey, CancellationToken, ValueTask<TResult>> read,
+        CancellationToken cancellationToken)
+    {
+        // A read must not observe the old deadline crossing while a replacement waits for its durable flush.
+        using var lease = await _keyLocks.LockAsync(MutationLockKey(key), cancellationToken).ConfigureAwait(false);
+        return await read(state, key, cancellationToken).ConfigureAwait(false);
+    }
 
     internal ValueTask<TResult> ExecuteAsync<TState, TResult>(
         CacheKey conflictKey,
@@ -47,8 +58,7 @@ internal sealed class DurableMutationExecutor
 
         // A bounded durable put can write two keys. Keep its capacity decision stable until apply by serializing writes in its namespace.
         // The pre-apply durability wait still runs outside the global mutation gate and unrelated namespaces can share a flush.
-        var lockKey = _serializeNamespace ? conflictKey with { Key = string.Empty } : conflictKey;
-        return ExecuteKeyedAsync(lockKey, precondition, pipeline, cancellationToken);
+        return ExecuteKeyedAsync(MutationLockKey(conflictKey), precondition, pipeline, cancellationToken);
     }
 
     /// <summary>
@@ -58,6 +68,8 @@ internal sealed class DurableMutationExecutor
     /// </summary>
     /// <returns><see langword="true" /> when the cache journal is not the durable source of the running write.</returns>
     private static bool SkipsCacheJournalDurabilityWait() => ReplicaApplyContext.IsActive;
+
+    private CacheKey MutationLockKey(CacheKey key) => _serializeNamespace ? key with { Key = string.Empty } : key;
 
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     private async ValueTask<TResult> ExecuteKeyedAsync<TState, TResult>(

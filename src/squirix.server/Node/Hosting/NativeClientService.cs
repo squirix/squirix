@@ -9,6 +9,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Adapters.Endpoint;
+using Squirix.Server.Adapters.Endpoint.Resp;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
@@ -28,26 +29,31 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
     private readonly TopologyOptions _topology;
     private readonly bool _mutationReplay;
     private readonly Uri? _managementUri;
+    private readonly Uri? _respUri;
     private readonly X509Certificate2? _suppliedCertificate;
     private readonly CancellationTokenSource _graceful = new();
     private readonly CancellationTokenSource _abort = new();
     private long _connectionSequence;
+    private long _respConnectionSequence;
     private int _disposeStarted;
     private Task _run = Task.CompletedTask;
     private MtlsCertificate.Hold? _peerMaterial;
     private X509Certificate2? _certificate;
     private X509Certificate2Collection? _additionalCertificates;
 
-    internal NativeClientService(IServiceProvider services, TopologyOptions topology, bool mutationReplay, Uri? managementUri, X509Certificate2? suppliedCertificate)
+    internal NativeClientService(IServiceProvider services, TopologyOptions topology, bool mutationReplay, Uri? managementUri, X509Certificate2? suppliedCertificate, Uri? respUri)
     {
         _services = services;
         _topology = topology;
         _mutationReplay = mutationReplay;
         _managementUri = managementUri;
         _suppliedCertificate = suppliedCertificate;
+        _respUri = respUri;
     }
 
     internal Uri? ManagementUri { get; private set; }
+
+    internal Uri? RespUri { get; private set; }
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -71,17 +77,8 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
             AddListeners(managementUri, socket => new NativeTlsListener(socket, tls, management.ServeAsync, _services.Require<IServerLoggerFactory>().CreateLogger<NativeTlsListener>(), 64), listeners, managementAddresses);
             if (listeners[managementIndex].Socket.LocalEndPoint is IPEndPoint boundManagement)
                 ManagementUri = new UriBuilder(managementUri) { Port = boundManagement.Port }.Uri;
-            if (material.Enabled)
-            {
-                _peerMaterial = material.Retain();
-                var internalUri = new UriBuilder(_topology.Uri) { Port = peerPort }.Uri;
-                var feature = _services.Require<FeatureState>();
-                var peer = new NativePeerEndpoint(_services, peerPort, feature.NetworkReplicationEnabled || feature.FoundationOnly);
-                var verifier = new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, _services.Require<IServerLoggerFactory>().CreateLogger<PeerHandshakeVerifier>());
-                var handshake = new InboundPeerHandshake(verifier, material.NodeCertificate!, MtlsTopology.GetRemotePeerNodeIds(_topology));
-                AddListeners(internalUri, socket => new NativeTlsListener(socket, handshake.CreateServerOptions, peer.ServeAsync, _services.Require<IServerLoggerFactory>().CreateLogger<NativeTlsListener>(), 256), listeners);
-            }
-
+            AddPeerListener(material, peerPort, listeners);
+            AddRespListener(tls, listeners);
             foreach (var (socket, _) in listeners)
                 LogListening(logger, socket.LocalEndPoint);
             foreach (var (_, listener) in listeners)
@@ -257,6 +254,37 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
             socket.Dispose();
             throw;
         }
+    }
+
+    private void AddPeerListener(MtlsCertificate material, int peerPort, List<(Socket Socket, NativeTlsListener Listener)> listeners)
+    {
+        if (!material.Enabled)
+            return;
+
+        _peerMaterial = material.Retain();
+        var internalUri = new UriBuilder(_topology.Uri) { Port = peerPort }.Uri;
+        var feature = _services.Require<FeatureState>();
+        var peer = new NativePeerEndpoint(_services, peerPort, feature.NetworkReplicationEnabled || feature.FoundationOnly);
+        var verifier = new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, _services.Require<IServerLoggerFactory>().CreateLogger<PeerHandshakeVerifier>());
+        var handshake = new InboundPeerHandshake(verifier, material.NodeCertificate!, MtlsTopology.GetRemotePeerNodeIds(_topology));
+        AddListeners(internalUri, socket => new NativeTlsListener(socket, handshake.CreateServerOptions, peer.ServeAsync, _services.Require<IServerLoggerFactory>().CreateLogger<NativeTlsListener>(), 256), listeners);
+    }
+
+    private void AddRespListener(SslServerAuthenticationOptions tls, List<(Socket Socket, NativeTlsListener Listener)> listeners)
+    {
+        if (_respUri == null)
+            return;
+
+        var validator = _services.Find<NativeConnectionAuthenticationValidator>();
+        var logger = _services.Require<IServerLoggerFactory>().CreateLogger<NativeTlsListener>();
+        var index = listeners.Count;
+        var clock = _services.Require<TimeProvider>();
+        var cache = new CacheCommands(_services.Require<BinaryRequestAccessor>(), _services.Require<BinaryDispatch>(), validator, clock, _mutationReplay);
+        Func<SslStream, IPEndPoint, CancellationToken, CancellationToken, Task> serve =
+            (stream, _, graceful, abort) => new Session(validator, cache, Interlocked.Increment(ref _respConnectionSequence), clock).RunAsync(stream, graceful, abort);
+        AddListeners(_respUri, socket => new NativeTlsListener(socket, tls, serve, logger, 64), listeners);
+        if (listeners[index].Socket.LocalEndPoint is IPEndPoint bound)
+            RespUri = new UriBuilder(_respUri) { Port = bound.Port }.Uri;
     }
 
     private string NextConnectionId() => Interlocked.Increment(ref _connectionSequence).ToString("x", CultureInfo.InvariantCulture);

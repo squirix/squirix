@@ -110,6 +110,8 @@ internal static class Program
             var server = await SquirixServer.StartAsync(options, CancellationToken.None).ConfigureAwait(false);
             await using var lifetime = server.ConfigureAwait(false);
             await WriteRunServerStatusAsync(command, options, server.ManagementUri, CancellationToken.None).ConfigureAwait(false);
+            if (server.RespUri is { } resp)
+                await WriteConsoleLineAsync(Console.Out, $"[Squirix.Server] RESP: {resp}").ConfigureAwait(false);
             await Task.Delay(Timeout.InfiniteTimeSpan, TimeProvider.System, server.ApplicationStopping).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             return 0;
         }

@@ -35,6 +35,7 @@
         <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.12.0"/>
         <PackageVersion Include="Microsoft.Testing.Extensions.HangDump" Version="2.5.3"/>
         <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.5.3"/>
+        <PackageVersion Include="StackExchange.Redis" Version="3.4.0"/>
         <PackageVersion Include="TUnit" Version="$(TUnitVersion)"/>
         <PackageVersion Include="TUnit.Assertions" Version="$(TUnitVersion)"/>
         <PackageVersion Include="TUnit.Core" Version="$(TUnitVersion)"/>

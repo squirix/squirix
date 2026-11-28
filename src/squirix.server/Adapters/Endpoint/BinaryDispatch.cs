@@ -2,6 +2,7 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Decorators;
@@ -49,6 +50,45 @@ internal sealed class BinaryDispatch
         _ => ValueTask.FromResult(new BinaryResponse(FrameStatus.Unimplemented, new BinaryCallError { Detail = "Unknown binary cache operation." })),
     };
 
+    internal ValueTask<BinaryResponse> ExecuteOwnerAsync(PeerOperation peerOperation, BinaryOperation operation, ReadOnlyMemory<byte> body, in Request context) => peerOperation switch
+    {
+        PeerOperation.ReplaceEntryIfPresent => InvokeAsync(CacheOperationNames.Update, SetEntryAsyncRequest.Parser, static (ops, request, token) => ops.Mutations.ReplaceEntryIfPresentAsync(request, token), body, in context),
+        PeerOperation.GetRespValue => InvokeAsync(CacheOperationNames.Get, GetValueAsyncRequest.Parser, static (ops, request, token) => ops.Reads.GetRespValueAsync(request, token), body, in context),
+        _ => ExecuteAsync(operation, body, in context),
+    };
+
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    internal async ValueTask<BinaryResponse> DispatchAsync<TRequest, TResponse>(
+        string operationName,
+        TRequest request,
+        Func<RoutedCacheOperations<StoredValue>, TRequest, CancellationToken, ValueTask<TResponse>> method,
+        Request context)
+        where TRequest : WireMessage
+        where TResponse : WireMessage
+    {
+        var call = context.Call;
+        if (context.ValueBytes is { } bytes && CacheWritePayload.Length(request) != bytes)
+            return new BinaryResponse(FrameStatus.InvalidArgument);
+
+        // Preparation can overlap, but admission and execution must observe earlier mutations.
+        if (!context.Predecessor.IsCompletedSuccessfully)
+            await context.Predecessor.WaitAsync(call.RequestAborted).ConfigureAwait(false);
+        call.RequestAborted.ThrowIfCancellationRequested();
+
+        var path = call.Path;
+        try
+        {
+            using var invocation = _scopes.EnterRemoteInvocation(context.Forwarded, context.ReportUnknownMutationOutcome);
+            using var activity = ServerCallCorrelation.StartActivity(path, call.TraceParent, call.TraceState);
+            using var log = _correlation.BeginLogScope(path);
+            return await AdmitWithDeadlineAsync(operationName, request, method, context).ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is ResourceExhaustedException or JournalCapacityExceededException or ServerOpIdMismatchException or SquirixException)
+        {
+            return MapDispatchError(error);
+        }
+    }
+
     private static BinaryResponse MapDispatchError(Exception error) => error switch
     {
         ResourceExhaustedException => BinaryResponse.FromError(ServerOpContract.MemoryPressure()),
@@ -74,38 +114,6 @@ internal sealed class BinaryDispatch
         where TRequest : WireMessage
         where TResponse : WireMessage =>
         DispatchAsync(operationName, body.Length > Frames.MaxRequestBytes ? parser.ParseBorrowed(body, context.Call.Connection?.Names) : parser.ParseFrom(body.Span, context.Call.Connection?.Names), method, context);
-
-    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    private async ValueTask<BinaryResponse> DispatchAsync<TRequest, TResponse>(
-        string operationName,
-        TRequest request,
-        Func<RoutedCacheOperations<StoredValue>, TRequest, CancellationToken, ValueTask<TResponse>> method,
-        Request context)
-        where TRequest : WireMessage
-        where TResponse : WireMessage
-    {
-        var call = context.Call;
-        if (context.ValueBytes is { } bytes && CacheWritePayload.Length(request) != bytes)
-            return new BinaryResponse(FrameStatus.InvalidArgument);
-
-        // Preparation can overlap, but admission and execution must observe earlier mutations.
-        if (!context.Predecessor.IsCompletedSuccessfully)
-            await context.Predecessor.WaitAsync(call.RequestAborted).ConfigureAwait(false);
-        call.RequestAborted.ThrowIfCancellationRequested();
-
-        var path = call.Path;
-        try
-        {
-            using var invocation = _scopes.EnterRemoteInvocation(context.Forwarded);
-            using var activity = ServerCallCorrelation.StartActivity(path, call.TraceParent, call.TraceState);
-            using var log = _correlation.BeginLogScope(path);
-            return await AdmitWithDeadlineAsync(operationName, request, method, context).ConfigureAwait(false);
-        }
-        catch (Exception error) when (error is ResourceExhaustedException or JournalCapacityExceededException or ServerOpIdMismatchException or SquirixException)
-        {
-            return MapDispatchError(error);
-        }
-    }
 
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     private async ValueTask<BinaryResponse> AdmitWithDeadlineAsync<TRequest, TResponse>(
@@ -148,5 +156,5 @@ internal sealed class BinaryDispatch
         }
     }
 
-    internal readonly record struct Request(BinaryRequestContext Call, ServerDeadlineBudget Deadline, Task Predecessor, bool Forwarded = false, int? ValueBytes = null);
+    internal readonly record struct Request(BinaryRequestContext Call, ServerDeadlineBudget Deadline, Task Predecessor, bool Forwarded = false, int? ValueBytes = null, bool ReportUnknownMutationOutcome = false);
 }

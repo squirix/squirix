@@ -33,5 +33,7 @@ internal interface ICacheApi<T>
     /// <returns>The add outcome and existing value.</returns>
     ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken);
 
+    ValueTask<bool> TryReplaceEntryAsync(string operationId, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken);
+
     ValueTask<bool> UpdateAsync(string operationId, string key, T? value, CancellationToken cancellationToken);
 }

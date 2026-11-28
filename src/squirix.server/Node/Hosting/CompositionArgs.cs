@@ -32,6 +32,8 @@ internal sealed class CompositionArgs
 
     internal Uri? ManagementUri { get; set; }
 
+    internal Uri? RespUri { get; set; }
+
     internal bool MetricsEnabled { get; set; }
 
     internal MtlsOptions? MtlsOptions { get; set; }

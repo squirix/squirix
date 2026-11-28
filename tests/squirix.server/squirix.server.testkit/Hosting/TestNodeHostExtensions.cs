@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -14,6 +15,8 @@ internal static class TestNodeHostExtensions
     /// <param name="host">A started in-process test node.</param>
     extension(ITestNodeHost host)
     {
+        internal Uri? GetRespUri() => host.GetRequiredService<NativeClientService>().RespUri;
+
         /// <summary>Seeds a binary entry through the logical mutation pipeline for exported-client read tests.</summary>
         /// <param name="cacheName">Target cache namespace.</param>
         /// <param name="key">Entry key.</param>
