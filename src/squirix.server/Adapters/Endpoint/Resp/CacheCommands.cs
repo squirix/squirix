@@ -30,15 +30,13 @@ internal sealed partial class CacheCommands
     private static readonly Response Unavailable = Response.Encoded([.. "-ERR cache operation unavailable\r\n"u8]);
     private static readonly Response TooLarge = Response.Encoded([.. "-ERR cached value exceeds the RESP value limit\r\n"u8]);
 
-    private readonly BinaryRequestAccessor _accessor;
     private readonly BinaryDispatch _dispatch;
     private readonly TimeProvider _clock;
     private readonly NativeConnectionAuthenticationValidator? _validator;
     private readonly bool _mutationReplay;
 
-    internal CacheCommands(BinaryRequestAccessor accessor, BinaryDispatch dispatch, NativeConnectionAuthenticationValidator? validator, TimeProvider clock, bool mutationReplay)
+    internal CacheCommands(BinaryDispatch dispatch, NativeConnectionAuthenticationValidator? validator, TimeProvider clock, bool mutationReplay)
     {
-        _accessor = accessor;
         _dispatch = dispatch;
         _validator = validator;
         _clock = clock;
@@ -72,7 +70,6 @@ internal sealed partial class CacheCommands
                 RequestAborted = cancellationToken,
                 RequestServices = scope?.ServiceProvider,
             };
-            _accessor.Current = call;
             var status = await AuthorizeAsync(operation, identity, call).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             return status == FrameStatus.Ok ? await DispatchAsync(operation, request, call).ConfigureAwait(false) : FromStatus(status);
@@ -87,7 +84,6 @@ internal sealed partial class CacheCommands
         }
         finally
         {
-            _accessor.Current = null;
             if (scope is { } requestScope)
                 await requestScope.DisposeAsync().ConfigureAwait(false);
         }
@@ -165,15 +161,7 @@ internal sealed partial class CacheCommands
             RequestAborted = call.RequestAborted,
             RequestServices = call.RequestServices,
         };
-        _accessor.Current = fullEntry;
-        try
-        {
-            return await _validator.AuthorizeAsync(identity!, fullEntry, call.RequestAborted).ConfigureAwait(false);
-        }
-        finally
-        {
-            _accessor.Current = call;
-        }
+        return await _validator.AuthorizeAsync(identity!, fullEntry, call.RequestAborted).ConfigureAwait(false);
     }
 
     private async ValueTask<Response> DispatchAsync(BinaryOperation operation, RequestReader request, BinaryRequestContext call)
@@ -196,18 +184,18 @@ internal sealed partial class CacheCommands
             BinaryOperation.GetValue => await _dispatch.DispatchAsync(
                 CacheOperationNames.Get,
                 new GetValueAsyncRequest { CacheName = CacheName, Key = key },
-                static (ops, input, token) => ops.Reads.GetRespValueAsync(input, token),
+                static (ops, input, token, context) => ops.Reads.GetRespValueAsync(input, token, context.Deadline, context),
                 context).ConfigureAwait(false),
             BinaryOperation.GetExpiration => await _dispatch.DispatchAsync(
                 CacheOperationNames.GetEntry,
                 new GetExpirationAsyncRequest { CacheName = CacheName, Key = key },
-                static (ops, input, token) => ops.Reads.GetExpirationAsync(input, token),
+                static (ops, input, token, context) => ops.Reads.GetExpirationAsync(input, token, context.Deadline, context),
                 context).ConfigureAwait(false),
             BinaryOperation.Remove => await RemoveAsync(key, in context).ConfigureAwait(false),
             BinaryOperation.RemoveExpiration => await _dispatch.DispatchAsync(
                 CacheOperationNames.RemoveExpiration,
                 new RemoveExpirationAsyncRequest { CacheName = CacheName, Key = key, OperationId = NewOperationId() },
-                static (ops, input, token) => ops.Mutations.RemoveExpirationAsync(input, token),
+                static (ops, input, token, context) => ops.Mutations.RemoveExpirationAsync(input, token, context.Deadline, context),
                 context).ConfigureAwait(false),
             _ => new BinaryResponse(FrameStatus.Unimplemented),
         };
@@ -223,7 +211,7 @@ internal sealed partial class CacheCommands
             ? await _dispatch.DispatchAsync(
                 CacheOperationNames.Touch,
                 new TouchAsyncRequest { CacheName = CacheName, Key = key, OperationId = NewOperationId(), Expiration = duration },
-                static (ops, input, token) => ops.Mutations.TouchAsync(input, token),
+                static (ops, input, token, context) => ops.Mutations.TouchAsync(input, token, context.Deadline, context),
                 context).ConfigureAwait(false)
             : await RemoveAsync(key, in context).ConfigureAwait(false);
         return FromBinaryResult(request, result);
@@ -232,7 +220,7 @@ internal sealed partial class CacheCommands
     private ValueTask<BinaryResponse> RemoveAsync(string key, in BinaryDispatch.Request context) => _dispatch.DispatchAsync(
         CacheOperationNames.Remove,
         new RemoveAsyncRequest { CacheName = CacheName, Key = key, OperationId = NewOperationId() },
-        static (ops, input, token) => ops.Mutations.RemoveAsync(input, token),
+        static (ops, input, token, context) => ops.Mutations.RemoveAsync(input, token, context.Deadline, context),
         context);
 
     private async ValueTask<Response> WriteAsync(RequestReader request, string key, BinaryDispatch.Request context)
@@ -252,17 +240,17 @@ internal sealed partial class CacheCommands
             WriteCondition.Absent => await _dispatch.DispatchAsync(
                 CacheOperationNames.TryAdd,
                 new TryAddEntryAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId, Entry = entry },
-                static (ops, input, token) => ops.Mutations.AddEntryIfAbsentAsync(input, token),
+                static (ops, input, token, context) => ops.Mutations.AddEntryIfAbsentAsync(input, token, context.Deadline, context),
                 context).ConfigureAwait(false),
             WriteCondition.Present => await _dispatch.DispatchAsync(
                 CacheOperationNames.Update,
                 new SetEntryAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId, Entry = entry },
-                static (ops, input, token) => ops.Mutations.ReplaceEntryIfPresentAsync(input, token),
+                static (ops, input, token, context) => ops.Mutations.ReplaceEntryIfPresentAsync(input, token, context.Deadline, context),
                 context).ConfigureAwait(false),
             _ => await _dispatch.DispatchAsync(
                 CacheOperationNames.Set,
                 new SetEntryAsyncRequest { CacheName = CacheName, Key = key, OperationId = operationId, Entry = entry },
-                static (ops, input, token) => ops.Mutations.SetEntryAsync(input, token),
+                static (ops, input, token, context) => ops.Mutations.SetEntryAsync(input, token, context.Deadline, context),
                 context).ConfigureAwait(false),
         };
         return FromBinaryResult(request, result);

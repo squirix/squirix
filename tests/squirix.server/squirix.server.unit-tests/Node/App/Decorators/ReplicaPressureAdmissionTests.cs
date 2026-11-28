@@ -50,7 +50,7 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
         var accounting = CreateAccounting();
         var cache = Create(inner.Object, accounting, static (_, _) => true, null);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, Key, Large, null, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(sink.HasEvent(RejectionsInstrument, ("reason", PressureGate.ReplicaPressureReason), ("operation", AdmissionOperations.Set))).IsTrue();
         _ = await Assert.That(accounting.ReadRejectedWriteCount()).IsEqualTo(1L);
@@ -70,8 +70,8 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
             static (cacheName, key) => string.Equals(cacheName, CacheName, StringComparison.Ordinal) && string.Equals(key, "pressured", StringComparison.Ordinal),
             null);
 
-        await cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, "pressured", Large, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        await cache.SetEntryAsync("op-1", CacheName, Key, Large, null, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, "pressured", Large, null, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A write passes while no member reports pressure, and a host that replicates nothing has no lookup.</summary>
@@ -85,8 +85,8 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
         var instance = inner.Object;
         var accounting = CreateAccounting();
 
-        await Create(instance, accounting, static (_, _) => false, null).SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken);
-        await Create(instance, accounting, null, null).SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken);
+        await Create(instance, accounting, static (_, _) => false, null).SetEntryAsync("op-1", CacheName, Key, Large, null, cancellationToken);
+        await Create(instance, accounting, null, null).SetEntryAsync("op-1", CacheName, Key, Large, null, cancellationToken);
 
         _ = await Assert.That(accounting.ReadRejectedWriteCount()).IsEqualTo(0L);
     }
@@ -100,7 +100,7 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
         _ = inner.RemoveAsync("op-1", CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(true));
         var cache = Create(inner.Object, CreateAccounting(), static (_, _) => true, null);
 
-        var removed = await cache.RemoveAsync("op-1", CacheName, Key, cancellationToken);
+        var removed = await cache.RemoveAsync("op-1", CacheName, Key, null, cancellationToken);
 
         _ = await Assert.That(removed).IsTrue();
     }
@@ -116,7 +116,7 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
         var accounting = CreateAccounting();
         var cache = Create(inner.Object, accounting, static (_, _) => true, null);
 
-        await cache.SetEntryAsync("op-1", CacheName, Key, Small, cancellationToken);
+        await cache.SetEntryAsync("op-1", CacheName, Key, Small, null, cancellationToken);
 
         _ = await Assert.That(accounting.ReadRejectedWriteCount()).IsEqualTo(0L);
     }
@@ -132,7 +132,7 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
         var accounting = CreateAccounting();
         var cache = Create(inner.Object, accounting, static (_, _) => true, static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal));
 
-        await cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken);
+        await cache.SetEntryAsync("op-1", CacheName, Key, Large, null, cancellationToken);
 
         _ = await Assert.That(accounting.ReadRejectedWriteCount()).IsEqualTo(0L);
     }
@@ -147,7 +147,7 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
         _ = inner.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
         var cache = Create(inner.Object, CreateAccounting(), static (_, _) => true, null, 1);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, Key, Large, null, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(sink.HasEvent(RejectionsInstrument, ("reason", PressureGate.EstimatedLimitReason))).IsTrue();
         _ = await Assert.That(sink.HasEvent(RejectionsInstrument, ("reason", PressureGate.ReplicaPressureReason))).IsFalse();

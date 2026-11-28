@@ -31,14 +31,14 @@ public sealed class ReplaceAdmissionTests : IsolatedStorageTestBase
         const string key = FusedWriteHarness.Key;
         var shrink = Entry("small");
         var growth = Entry(new string('b', 512));
-        await harness.Cache.SetEntryAsync(string.Empty, cacheName, key, Entry(new string('a', 1024)), cancellationToken);
+        await harness.Cache.SetEntryAsync(string.Empty, cacheName, key, Entry(new string('a', 1024)), null, cancellationToken);
 
         journal.Writer.Flush.Arm();
-        var shrinking = harness.Cache.TryReplaceEntryAsync(string.Empty, cacheName, key, shrink, cancellationToken).AsTask();
+        var shrinking = harness.Cache.TryReplaceEntryAsync(string.Empty, cacheName, key, shrink, null, cancellationToken).AsTask();
         try
         {
             await journal.Writer.Flush.Entered.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
-            var growing = harness.Cache.TryReplaceEntryAsync(string.Empty, cacheName, key, growth, cancellationToken).AsTask();
+            var growing = harness.Cache.TryReplaceEntryAsync(string.Empty, cacheName, key, growth, null, cancellationToken).AsTask();
             _ = await Assert.That(growing.IsCompleted).IsFalse();
             journal.Writer.Flush.Release();
 
@@ -51,7 +51,7 @@ public sealed class ReplaceAdmissionTests : IsolatedStorageTestBase
             journal.Writer.Flush.Release();
         }
 
-        var current = await harness.Cache.GetEntryAsync(cacheName, key, cancellationToken);
+        var current = await harness.Cache.GetEntryAsync(cacheName, key, null, cancellationToken);
         _ = await Assert.That(current!.Value.Memory.Span.SequenceEqual(shrink.Value.Memory.Span)).IsTrue();
         _ = await Assert.That(harness.ReadFrames(cancellationToken).Count).IsEqualTo(2);
     }
@@ -64,7 +64,7 @@ public sealed class ReplaceAdmissionTests : IsolatedStorageTestBase
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var harness = new FusedWriteHarness(Dir, journal, replacementAdmission: static _ => CriticalAdmission());
         var result = await harness.Cache.TryReplaceEntryAsync(
-            string.Empty, FusedWriteHarness.CacheName, FusedWriteHarness.Key, Entry(new string('b', 512)), cancellationToken);
+            string.Empty, FusedWriteHarness.CacheName, FusedWriteHarness.Key, Entry(new string('b', 512)), null, cancellationToken);
 
         _ = await Assert.That(result).IsFalse();
         _ = await Assert.That(journal.Journal.AppendedOps).IsEqualTo(0);
@@ -89,15 +89,15 @@ public sealed class ReplaceAdmissionTests : IsolatedStorageTestBase
         const string secondKey = "b";
         var initial = Entry("small");
         var larger = Entry(new string('v', 1200));
-        await harness.Cache.SetEntryAsync(string.Empty, cacheName, firstKey, initial, cancellationToken);
-        await harness.Cache.SetEntryAsync(string.Empty, cacheName, secondKey, initial, cancellationToken);
+        await harness.Cache.SetEntryAsync(string.Empty, cacheName, firstKey, initial, null, cancellationToken);
+        await harness.Cache.SetEntryAsync(string.Empty, cacheName, secondKey, initial, null, cancellationToken);
 
         journal.Writer.Flush.Arm();
-        var first = harness.Cache.TryReplaceEntryAsync(string.Empty, cacheName, firstKey, larger, cancellationToken).AsTask();
+        var first = harness.Cache.TryReplaceEntryAsync(string.Empty, cacheName, firstKey, larger, null, cancellationToken).AsTask();
         try
         {
             await journal.Writer.Flush.Entered.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
-            var second = harness.Cache.TryReplaceEntryAsync(string.Empty, cacheName, secondKey, larger, cancellationToken).AsTask();
+            var second = harness.Cache.TryReplaceEntryAsync(string.Empty, cacheName, secondKey, larger, null, cancellationToken).AsTask();
             _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(
                 second, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
             _ = await Assert.That(journal.Journal.AppendedOps).IsEqualTo(3);
@@ -108,10 +108,10 @@ public sealed class ReplaceAdmissionTests : IsolatedStorageTestBase
         }
 
         _ = await Assert.That(await first).IsTrue();
-        var unchanged = await harness.Cache.GetEntryAsync(cacheName, secondKey, cancellationToken);
+        var unchanged = await harness.Cache.GetEntryAsync(cacheName, secondKey, null, cancellationToken);
         _ = await Assert.That(unchanged!.Value.Memory.Span.SequenceEqual(initial.Value.Memory.Span)).IsTrue();
-        _ = await Assert.That(await harness.Cache.TryReplaceEntryAsync(string.Empty, cacheName, firstKey, initial, cancellationToken)).IsTrue();
-        _ = await Assert.That(await harness.Cache.TryReplaceEntryAsync(string.Empty, cacheName, secondKey, larger, cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Cache.TryReplaceEntryAsync(string.Empty, cacheName, firstKey, initial, null, cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Cache.TryReplaceEntryAsync(string.Empty, cacheName, secondKey, larger, null, cancellationToken)).IsTrue();
         _ = await Assert.That(harness.ReadFrames(cancellationToken).Count).IsEqualTo(5);
     }
 

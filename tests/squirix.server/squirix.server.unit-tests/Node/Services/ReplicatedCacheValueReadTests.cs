@@ -75,10 +75,10 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), local, clock);
         await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
         var cache = new ReplicatedCache(local, LeadOwn(committer));
-        _ = await cache.GetValueAsync(CacheName, Key, cancellationToken);
+        _ = await cache.GetValueAsync(CacheName, Key, null, cancellationToken);
         clock.Advance(Ttl);
 
-        var read = await cache.GetValueAsync(CacheName, Key, cancellationToken);
+        var read = await cache.GetValueAsync(CacheName, Key, null, cancellationToken);
 
         _ = await Assert.That(read.Found).IsFalse();
         _ = await Assert.That(await LastKindAsync(registry, cancellationToken)).IsEqualTo(ReplicaMutationKinds.Expire);
@@ -115,7 +115,7 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
                 }));
         var cache = new ReplicatedCache(inner.Object, LeadOwn(committer));
 
-        var read = await cache.GetValueAsync(CacheName, Key, cancellationToken);
+        var read = await cache.GetValueAsync(CacheName, Key, null, cancellationToken);
 
         _ = await Assert.That(read.Found).IsTrue();
 
@@ -138,8 +138,8 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         var cache = new ReplicatedCache(local, LeadOwn(committer));
 
         // The first read checks the seeding of the copy.
-        _ = await cache.GetValueAsync(CacheName, Key, cancellationToken);
-        var read = cache.GetValueAsync(CacheName, Key, cancellationToken);
+        _ = await cache.GetValueAsync(CacheName, Key, null, cancellationToken);
+        var read = cache.GetValueAsync(CacheName, Key, null, cancellationToken);
 
         _ = await Assert.That(read.IsCompletedSuccessfully).IsTrue();
         var result = await read;
@@ -166,7 +166,7 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         await using var readers = new ReplicaGroupCommitters([committer], committer.GroupId, INodeLocator.Mock(MockBehavior.Strict).Object, readerClock);
         var cache = new ReplicatedCache(local, readers);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<StoredValue>?>(cache.GetEntryAsync(CacheName, Key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<StoredValue>?>(cache.GetEntryAsync(CacheName, Key, null, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.ExpirationPendingDetail));
         _ = await Assert.That(StoredValueProbe.Text(physical.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken)?.Value)).IsEqualTo("v");
@@ -195,7 +195,7 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
 
         var reads = new Task<NodeCacheEntry<StoredValue>?>[keys.Length];
         for (var i = 0; i < keys.Length; i++)
-            reads[i] = cache.GetEntryAsync(CacheName, keys[i], cancellationToken).AsTask();
+            reads[i] = cache.GetEntryAsync(CacheName, keys[i], null, cancellationToken).AsTask();
 
         foreach (var read in reads)
         {

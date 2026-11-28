@@ -10,7 +10,6 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
-using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -168,29 +167,25 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
         {
             EnsureOwnedBy(groupId, entries.Span, keys);
 
-            // All writes in the batch share the replica apply context.
-            using (ReplicaApplyContext.Enter())
+            for (var i = 0; i < entries.Length; i++)
             {
-                for (var i = 0; i < entries.Length; i++)
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_journal.AtHighWater)
+                    return i;
+
+                var item = entries.Span[i];
+                var entry = Decode(in item, out var encodedLength);
+                try
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    if (_journal.AtHighWater)
-                        return i;
-
-                    var item = entries.Span[i];
-                    var entry = Decode(in item, out var encodedLength);
-                    try
-                    {
-                        await _local.SetEntryAsync(string.Empty, item.CacheName, keys[i], entry, encodedLength, CancellationToken.None).ConfigureAwait(false);
-                    }
-                    catch (JournalCapacityExceededException)
-                    {
-                        // The journal refused the frame before it reached the ring: neither the journal nor memory changed, so the next step writes the entry.
-                        return i;
-                    }
-
-                    work.Checksum.Add(in item);
+                    await ReplicaCacheApplier.SetReplicaEntryAsync(_local, string.Empty, item.CacheName, keys[i], entry, encodedLength, CancellationToken.None).ConfigureAwait(false);
                 }
+                catch (JournalCapacityExceededException)
+                {
+                    // The journal refused the frame before it reached the ring: neither the journal nor memory changed, so the next step writes the entry.
+                    return i;
+                }
+
+                work.Checksum.Add(in item);
             }
 
             return entries.Length;
@@ -240,17 +235,14 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
     /// <returns><see langword="true" /> when the key is removed; <see langword="false" /> when the journal refused the removal.</returns>
     private async ValueTask<bool> TryRemoveAsync(CacheKey current)
     {
-        using (ReplicaApplyContext.Enter())
+        try
         {
-            try
-            {
-                _ = await _local.RemoveAsync(string.Empty, current.Namespace, current.Key, CancellationToken.None).ConfigureAwait(false);
-                return true;
-            }
-            catch (JournalCapacityExceededException)
-            {
-                return false;
-            }
+            _ = await ReplicaCacheApplier.RemoveReplicaAsync(_local, string.Empty, current.Namespace, current.Key, CancellationToken.None).ConfigureAwait(false);
+            return true;
+        }
+        catch (JournalCapacityExceededException)
+        {
+            return false;
         }
     }
 

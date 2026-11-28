@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
 using System.Threading;
@@ -74,8 +75,9 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
 
         var attempts = new InvocationCounter();
         Task<int> execute;
-        using (clock.RecordCaller())
+        using (var activity = new Activity(nameof(CallerTimerClock)))
         {
+            _ = activity.Start();
             execute = policy.ExecuteAsync(
                 attempts,
                 static async (counter, ct) =>
@@ -176,7 +178,7 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
     }
 
     /// <summary>
-    /// A fake clock that counts the per-attempt timeout timers created by the call flow inside <see cref="RecordCaller" />: those due exactly at the
+    /// A fake clock that counts the per-attempt timeout timers created by the call flow inside the test activity: those due exactly at the
     /// attempt timeout, which leaves out any other timer armed on the same clock.
     /// </summary>
     [ThreadSafe]
@@ -185,7 +187,6 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
         /// <summary>The node gives each forwarded attempt 3 s.</summary>
         private static readonly TimeSpan AttemptTimeout = TimeSpan.FromSeconds(3);
 
-        private readonly AsyncLocal<bool> _recording = new();
         private int _count;
 
         internal CallerTimerClock()
@@ -197,23 +198,10 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
 
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
-            if (_recording.Value && dueTime == AttemptTimeout)
+            if (string.Equals(Activity.Current?.OperationName, nameof(CallerTimerClock), StringComparison.Ordinal) && dueTime == AttemptTimeout)
                 _ = Interlocked.Increment(ref _count);
 
             return base.CreateTimer(callback, state, dueTime, period);
-        }
-
-        /// <summary>Records the timers the current call flow creates until the scope is disposed.</summary>
-        /// <returns>The scope that stops recording.</returns>
-        internal RecordingScope RecordCaller()
-        {
-            _recording.Value = true;
-            return new RecordingScope(_recording);
-        }
-
-        internal readonly record struct RecordingScope(AsyncLocal<bool> Recording) : IDisposable
-        {
-            public void Dispose() => Recording.Value = false;
         }
     }
 }

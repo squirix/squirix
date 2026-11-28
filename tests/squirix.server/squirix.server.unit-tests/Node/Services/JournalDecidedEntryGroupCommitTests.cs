@@ -30,10 +30,10 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
     private static readonly TimeSpan PastStart = TimeSpan.FromHours(-2);
 
     private static readonly Func<JournalLoggingCacheDecorator<string>, CancellationToken, ValueTask> PersistTail =
-        static async (cache, ct) => _ = await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, ct);
+        static async (cache, ct) => _ = await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, null, ct);
 
     private static readonly Func<JournalLoggingCacheDecorator<string>, CancellationToken, ValueTask> TouchTail =
-        static async (cache, ct) => _ = await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, ct);
+        static async (cache, ct) => _ = await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, null, ct);
 
     private readonly Meter _testMeter = new("test");
 
@@ -48,7 +48,7 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
     public async Task PersistAppliesJournaledEntry(CancellationToken cancellationToken)
     {
         var memory = await MutateAndReadMemoryAsync(
-            static (cache, ct) => cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, ct),
+            static (cache, ct) => cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, null, ct),
             cancellationToken);
 
         await AssertEqualsLastJournaledPutAsync(memory, cancellationToken);
@@ -61,10 +61,10 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
     public async Task PersistSkipReleasesKeyGuard(CancellationToken cancellationToken)
     {
         await using var session = await Kit.OpenAsync(JournalReplayKit.CreateWriteClock(PastStart), cancellationToken);
-        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), cancellationToken);
+        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), null, cancellationToken);
 
-        _ = await Assert.That(await session.Cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, cancellationToken)).IsFalse();
-        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("w"), cancellationToken);
+        _ = await Assert.That(await session.Cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, null, cancellationToken)).IsFalse();
+        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("w"), null, cancellationToken);
 
         _ = await Assert.That(session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken)!.Value).IsEqualTo("w");
     }
@@ -96,7 +96,7 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
     public async Task TouchAppliesJournaledEntry(CancellationToken cancellationToken)
     {
         var memory = await MutateAndReadMemoryAsync(
-            static (cache, ct) => cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, ct),
+            static (cache, ct) => cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, null, ct),
             cancellationToken);
 
         await AssertEqualsLastJournaledPutAsync(memory, cancellationToken);
@@ -109,8 +109,8 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
     {
         await using var session = await Kit.OpenAsync(JournalReplayKit.CreateWriteClock(PastStart), cancellationToken);
 
-        _ = await Assert.That(await session.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, cancellationToken)).IsFalse();
-        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("w"), cancellationToken);
+        _ = await Assert.That(await session.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, null, cancellationToken)).IsFalse();
+        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("w"), null, cancellationToken);
 
         _ = await Assert.That(session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken)!.Value).IsEqualTo("w");
     }
@@ -121,7 +121,7 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
     public async Task UpdateAppliesJournaledEntry(CancellationToken cancellationToken)
     {
         var memory = await MutateAndReadMemoryAsync(
-            static (cache, ct) => cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, "v2", ct),
+            static (cache, ct) => cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, "v2", null, ct),
             cancellationToken);
 
         await AssertEqualsLastJournaledPutAsync(memory, cancellationToken);
@@ -156,7 +156,7 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
         {
             var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["team"] = "a" }.ToFrozenDictionary(StringComparer.Ordinal);
             var seeded = new NodeCacheEntry<string>("v1", 3, clock.GetUtcNow().UtcDateTime.Add(OriginalTtl), tags: tags);
-            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, seeded, cancellationToken);
+            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, seeded, null, cancellationToken);
             _ = await Assert.That(await mutate(session.Cache, cancellationToken)).IsTrue();
             memory = session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         }

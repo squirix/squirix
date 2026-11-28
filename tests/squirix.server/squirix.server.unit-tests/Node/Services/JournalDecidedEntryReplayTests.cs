@@ -44,8 +44,8 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
         _ = await WriteAsync(
             static async (cache, ct) =>
             {
-                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: OriginalTtl), ct);
-                _ = await Assert.That(await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, ct)).IsTrue();
+                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: OriginalTtl), null, ct);
+                _ = await Assert.That(await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, null, ct)).IsTrue();
             },
             cancellationToken);
 
@@ -65,7 +65,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
         _ = await Kit.WriteSnapshotThenTailAsync(
             PastStart,
             OriginalTtl,
-            static async (cache, ct) => _ = await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, ct),
+            static async (cache, ct) => _ = await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, null, ct),
             cancellationToken);
 
         var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
@@ -83,7 +83,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
         var start = await Kit.WriteSnapshotThenTailAsync(
             PastStart,
             OriginalTtl,
-            static async (cache, ct) => _ = await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, ct),
+            static async (cache, ct) => _ = await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, null, ct),
             cancellationToken);
 
         var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
@@ -101,9 +101,9 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
         var memory = await Kit.WriteAsync(
             static async (cache, clock, ct) =>
             {
-                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: OriginalTtl), ct);
+                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: OriginalTtl), null, ct);
                 clock.Advance(OriginalTtl + TimeSpan.FromMinutes(1));
-                _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, ct)).IsFalse();
+                _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, null, ct)).IsFalse();
             },
             TimeSpan.Zero,
             PastStart,
@@ -124,8 +124,8 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
         var written = await WriteAsync(
             static async (cache, ct) =>
             {
-                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: OriginalTtl), ct);
-                _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, ct)).IsTrue();
+                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: OriginalTtl), null, ct);
+                _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, null, ct)).IsTrue();
             },
             cancellationToken);
 
@@ -144,9 +144,9 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
         var written = await WriteAsync(
             static async (cache, ct) =>
             {
-                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v1", expiration: OriginalTtl), ct);
-                _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, ct)).IsTrue();
-                _ = await Assert.That(await cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, "v2", ct)).IsTrue();
+                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v1", expiration: OriginalTtl), null, ct);
+                _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, null, ct)).IsTrue();
+                _ = await Assert.That(await cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, "v2", null, ct)).IsTrue();
             },
             cancellationToken);
 
@@ -167,8 +167,8 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
             static async (cache, ct) =>
             {
                 var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["team"] = "a" }.ToFrozenDictionary(StringComparer.Ordinal);
-                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v1", 2, tags: tags), ct);
-                _ = await Assert.That(await cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, "v2", ct)).IsTrue();
+                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v1", 2, tags: tags), null, ct);
+                _ = await Assert.That(await cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, "v2", null, ct)).IsTrue();
             },
             cancellationToken);
 

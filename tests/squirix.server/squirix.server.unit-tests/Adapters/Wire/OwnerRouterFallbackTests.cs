@@ -281,7 +281,7 @@ public sealed class OwnerRouterFallbackTests
             "cache",
             "key",
             (Attempts: this, Request: _request),
-            static (s, target, _) => s.Attempts.RecordAsync(target, s.Request),
+            static (s, target, _, _) => s.Attempts.RecordAsync(target, s.Request),
             static (s, _) => new ValueTask<string>(s.Attempts.RecordAsync("local", s.Request)),
             cancellationToken).AsTask();
 

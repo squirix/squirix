@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -12,7 +13,6 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
-using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Testing;
@@ -121,8 +121,8 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
             _ => throw new InvalidOperationException("Unknown test failure kind."),
         });
         var forwarder = CreateForwarder(invoker);
-        using var scope = RemoteInvocationContext.EnterRemoteInvocation(false, true);
-        var write = forwarder.SetEntryAsync(Owner, new SetEntryAsyncRequest { CacheName = "resp", Key = "k" }, cancellationToken);
+        var context = new BinaryRequestContext { Path = "/resp/set", ReportUnknownMutationOutcome = true };
+        var write = forwarder.SetEntryAsync(Owner, new SetEntryAsyncRequest { CacheName = "resp", Key = "k" }, cancellationToken, context: context);
         var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(write, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.StatusCode).IsEqualTo(FrameStatus.Unavailable);
@@ -177,12 +177,10 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         var forwarder = CreateForwarder(pool, CreatePolicy(ForwardingCallPolicyDefaults.TimeoutPerAttempt, clock));
 
         ServerCallException failure;
-        using (ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + ElectionTimerOptions.LeaderRefusalMargin, clock))
-        {
-            var forward = forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken);
-            await dialStarted.Task.WaitAsync(cancellationToken);
-            failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(forward, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        }
+        var budget = ServerDeadlineBudget.Start(clock.GetUtcNow().UtcDateTime + ElectionTimerOptions.LeaderRefusalMargin, clock);
+        var forward = forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken, false, budget);
+        await dialStarted.Task.WaitAsync(cancellationToken);
+        failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(forward, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsTrue();
         _ = await Assert.That(failure.StatusCode).IsNotEqualTo(FrameStatus.DeadlineExceeded);

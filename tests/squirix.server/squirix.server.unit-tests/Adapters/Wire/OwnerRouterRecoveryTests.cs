@@ -208,8 +208,8 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         await using var scene = await Scene.OpenAsync(dir, cancellationToken);
         scene.Failures.Enqueue(Unreachable());
         scene.OnFailure = () => scene.Clock.Advance(TimeSpan.FromMilliseconds(500));
-        using var deadline = ServerRpcDeadlineContext.Push(scene.Clock.GetUtcNow().UtcDateTime + TimeSpan.FromSeconds(2), scene.Clock);
-        var call = scene.RunAsync(cancellationToken);
+        var deadline = ServerDeadlineBudget.Start(scene.Clock.GetUtcNow().UtcDateTime + TimeSpan.FromSeconds(2), scene.Clock);
+        var call = scene.RunAsync(cancellationToken, deadline);
         var pending = !call.IsCompleted;
         scene.Clock.Advance(TimeSpan.FromMilliseconds(499));
         var beforeBoundary = !call.IsCompleted;
@@ -252,7 +252,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
             "cache",
             Other,
             scene.Request,
-            static (_, target, _) => Task.FromResult(target),
+            static (_, target, _, _) => Task.FromResult(target),
             static (_, _) => ValueTask.FromResult(Self),
             cancellationToken);
         var pending = !waiting.IsCompleted;
@@ -334,13 +334,14 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
             }
         }
 
-        internal Task<string> RunAsync(CancellationToken cancellationToken) => Router.ExecuteAsync(
+        internal Task<string> RunAsync(CancellationToken cancellationToken, ServerDeadlineBudget? deadline = null) => Router.ExecuteAsync(
             "cache",
             "key",
             (Scene: this, Request),
-            static (s, target, _) => s.Scene.SendAsync(target, s.Request),
+            static (s, target, _, _) => s.Scene.SendAsync(target, s.Request),
             static (s, _) => new ValueTask<string>(s.Scene.SendAsync(Self, s.Request)),
-            cancellationToken).AsTask();
+            cancellationToken,
+            (deadline, null)).AsTask();
 
         private Task<string> SendAsync(string target, MutationRequest request)
         {

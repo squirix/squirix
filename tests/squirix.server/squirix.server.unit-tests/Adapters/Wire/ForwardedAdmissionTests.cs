@@ -3,13 +3,11 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Cluster;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
-using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Testing;
@@ -198,8 +196,7 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
             _ = EnteredSource.TrySetResult();
             await _barrier.WaitAsync(cancellationToken).ConfigureAwait(false);
 
-            using var scope = RemoteInvocationContext.EnterRemoteInvocation(true);
-            var (decision, lease) = await _ownerGate.AcquireAsync("cache", "get", SharedClientIdResolver.Instance.Resolve(), cancellationToken).ConfigureAwait(false);
+            var (decision, lease) = await _ownerGate.AcquireAsync("cache", "get", ClientIds.InternalOwner, cancellationToken).ConfigureAwait(false);
             using (lease)
             {
                 Decisions.Add(decision.RejectReason);

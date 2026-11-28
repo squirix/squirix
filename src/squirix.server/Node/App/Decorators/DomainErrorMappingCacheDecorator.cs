@@ -16,7 +16,7 @@ namespace Squirix.Server.Node.App.Decorators;
 /// <summary>Maps transport-level <see cref="ServerCallException" /> failures from clustered remote calls where a stable normalization exists.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 [Immutable]
-internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCache<T>
+internal sealed class DomainErrorMappingCacheDecorator<T> : IRequestCache<T>
 {
     private readonly ILogicalNamespacedCache<T> _inner;
 
@@ -29,71 +29,83 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
         _pressure = pressure;
     }
 
-    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => WithMappingAsync(
-        static (inner, args, ct) => inner.GetEntryAsync(args.CacheName, args.Key, ct),
+    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken) => WithMappingAsync(
+        static (inner, args, ct, context) => inner.GetEntryForRequestAsync(args.CacheName, args.Key, ct, context),
         new ReadKeyArgs(cacheName, key),
+        request,
         cancellationToken);
 
-    public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken) => WithMappingAsync(
-        static (inner, args, ct) => inner.GetValueWithDeadlineAsync(args.CacheName, args.Key, ct),
+    public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken) => WithMappingAsync(
+        static (inner, args, ct, context) => inner.GetValueWithDeadlineForRequestAsync(args.CacheName, args.Key, ct, context),
         new ReadKeyArgs(cacheName, key),
+        request,
         cancellationToken);
 
-    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => WithMappingAsync(
-        static (inner, args, ct) => inner.GetValueAsync(args.CacheName, args.Key, ct),
+    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken) => WithMappingAsync(
+        static (inner, args, ct, context) => inner.GetValueForRequestAsync(args.CacheName, args.Key, ct, context),
         new ReadKeyArgs(cacheName, key),
+        request,
         cancellationToken);
 
-    public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => WithMappingAsync(
-        static (inner, args, ct) => inner.RemoveAsync(args.OperationId, args.CacheName, args.Key, ct),
+    public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken) => WithMappingAsync(
+        static (inner, args, ct, context) => inner.RemoveForRequestAsync(args.OperationId, args.CacheName, args.Key, ct, context),
         new MutationKeyArgs(operationId, cacheName, key),
+        request,
         cancellationToken);
 
-    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => WithMappingAsync(
-        static (inner, args, ct) => inner.RemoveExpirationAsync(args.OperationId, args.CacheName, args.Key, ct),
+    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken) => WithMappingAsync(
+        static (inner, args, ct, context) => inner.RemoveExpirationForRequestAsync(args.OperationId, args.CacheName, args.Key, ct, context),
         new MutationKeyArgs(operationId, cacheName, key),
+        request,
         cancellationToken);
 
-    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) => WithMappingAsync(
-        static (inner, args, ct) => inner.SetEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, ICacheRequestContext? request, CancellationToken cancellationToken) => WithMappingAsync(
+        static (inner, args, ct, context) => inner.SetEntryForRequestAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct, context),
         new SetEntryArgs<T>(operationId, cacheName, key, entry),
+        request,
         cancellationToken);
 
-    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => WithMappingAsync(
-        static (inner, args, ct) => inner.TouchAsync(args.OperationId, args.CacheName, args.Key, args.Expiration, ct),
+    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, ICacheRequestContext? request, CancellationToken cancellationToken) => WithMappingAsync(
+        static (inner, args, ct, context) => inner.TouchForRequestAsync(args.OperationId, args.CacheName, args.Key, args.Expiration, ct, context),
         new TouchArgs(operationId, cacheName, key, expiration),
+        request,
         cancellationToken);
 
-    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) => WithMappingAsync(
-        static (inner, args, ct) => inner.TryAddEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, ICacheRequestContext? request, CancellationToken cancellationToken) => WithMappingAsync(
+        static (inner, args, ct, context) => inner.TryAddEntryForRequestAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct, context),
         new SetEntryArgs<T>(operationId, cacheName, key, entry),
+        request,
         cancellationToken);
 
-    public ValueTask<bool> TryReplaceEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) => WithMappingAsync(
-        static (inner, args, ct) => inner.TryReplaceEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
+    public ValueTask<bool> TryReplaceEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, ICacheRequestContext? request, CancellationToken cancellationToken) => WithMappingAsync(
+        static (inner, args, ct, context) => inner.TryReplaceEntryForRequestAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct, context),
         new SetEntryArgs<T>(operationId, cacheName, key, entry),
+        request,
         cancellationToken);
 
-    public ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+    public ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, ICacheRequestContext? request, CancellationToken cancellationToken) =>
         WithMappingAsync(
-            static (inner, args, ct) => inner.AddOrGetAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
+            static (inner, args, ct, context) => inner.AddOrGetForRequestAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct, context),
             new SetEntryArgs<T>(operationId, cacheName, key, entry),
+            request,
             cancellationToken);
 
-    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) => WithMappingAsync(
-        static (inner, args, ct) => inner.UpdateAsync(args.OperationId, args.CacheName, args.Key, args.Value, ct),
+    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, ICacheRequestContext? request, CancellationToken cancellationToken) => WithMappingAsync(
+        static (inner, args, ct, context) => inner.UpdateForRequestAsync(args.OperationId, args.CacheName, args.Key, args.Value, ct, context),
         new UpdateArgs<T>(operationId, cacheName, key, value),
+        request,
         cancellationToken);
 
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
     private async ValueTask WithMappingAsync<TState>(
-        Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask> invoke,
+        Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ICacheRequestContext?, ValueTask> invoke,
         TState state,
+        ICacheRequestContext? request,
         CancellationToken cancellationToken)
     {
         try
         {
-            await invoke(_inner, state, cancellationToken).ConfigureAwait(false);
+            await invoke(_inner, state, cancellationToken, request).ConfigureAwait(false);
         }
         catch (ResourceExhaustedException rejection) when (rejection.WasCritical != null && _pressure != null)
         {
@@ -108,13 +120,14 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
 
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     private async ValueTask<TResult> WithMappingAsync<TState, TResult>(
-        Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask<TResult>> invoke,
+        Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ICacheRequestContext?, ValueTask<TResult>> invoke,
         TState state,
+        ICacheRequestContext? request,
         CancellationToken cancellationToken)
     {
         try
         {
-            return await invoke(_inner, state, cancellationToken).ConfigureAwait(false);
+            return await invoke(_inner, state, cancellationToken, request).ConfigureAwait(false);
         }
         catch (ResourceExhaustedException rejection) when (rejection.WasCritical != null && _pressure != null)
         {

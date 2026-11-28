@@ -37,7 +37,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         var (cache, inner, accounting, _) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var entry = CreateEntry("v");
 
-        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, cancellationToken)).IsTrue();
+        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, null, cancellationToken)).IsTrue();
         _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
 
         var remove = new ConcurrentCacheOp(cache, key, cancellationToken);
@@ -114,7 +114,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         const string updatedValue = "much-longer-value";
         var replacement = CreateEntry(updatedValue);
 
-        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, initial, cancellationToken)).IsTrue();
+        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, initial, null, cancellationToken)).IsTrue();
         var bytesBeforeUpdate = accounting.ReadEstimatedBytes();
         var expectedDelta = EstimateEntryBytes(estimator, CacheName, key, replacement) - EstimateEntryBytes(estimator, CacheName, key, initial);
 
@@ -144,10 +144,10 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         };
         var expirationGrowth = EstimateExpirationMetadataDelta(estimator, keyValue, CreateEntry("v"));
 
-        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, cancellationToken)).IsTrue();
+        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, null, cancellationToken)).IsTrue();
         var bytesWithExpiration = accounting.ReadEstimatedBytes();
 
-        _ = await Assert.That(await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, key, cancellationToken)).IsTrue();
+        _ = await Assert.That(await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, key, null, cancellationToken)).IsTrue();
         _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(bytesWithExpiration - expirationGrowth);
         _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
     }
@@ -165,7 +165,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
 
         await RunSynchronizedConcurrentVoidAsync(
             2,
-            index => cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, index == 0 ? small : large, cancellationToken).AsTask(),
+            index => cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, index == 0 ? small : large, null, cancellationToken).AsTask(),
             cancellationToken);
 
         var stored = physical.GetEntry(new CacheKey(CacheName, key), cancellationToken);
@@ -185,11 +185,11 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         var initial = CreateEntry("a");
         var replacement = CreateEntry("much-longer-value");
 
-        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, initial, cancellationToken)).IsTrue();
+        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, initial, null, cancellationToken)).IsTrue();
         var bytesBeforeReplace = accounting.ReadEstimatedBytes();
         var expectedDelta = EstimateEntryBytes(estimator, CacheName, key, replacement) - EstimateEntryBytes(estimator, CacheName, key, initial);
 
-        await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, replacement, cancellationToken);
+        await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, replacement, null, cancellationToken);
 
         _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
         _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(bytesBeforeReplace + expectedDelta);
@@ -208,10 +208,10 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         var entry = CreateEntry("v");
         var expirationGrowth = EstimateExpirationMetadataDelta(estimator, keyValue, entry);
 
-        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, cancellationToken)).IsTrue();
+        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, null, cancellationToken)).IsTrue();
         var bytesBeforeTouch = accounting.ReadEstimatedBytes();
 
-        _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, key, TimeSpan.FromMinutes(5), cancellationToken)).IsTrue();
+        _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, key, TimeSpan.FromMinutes(5), null, cancellationToken)).IsTrue();
         _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(bytesBeforeTouch + expirationGrowth);
         _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
     }
@@ -232,10 +232,10 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
             ExpiresUtc = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(10),
         };
 
-        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, cancellationToken)).IsTrue();
+        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, null, cancellationToken)).IsTrue();
         var bytesBeforeTouch = accounting.ReadEstimatedBytes();
 
-        _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, key, TimeSpan.FromMinutes(5), cancellationToken)).IsTrue();
+        _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, key, TimeSpan.FromMinutes(5), null, cancellationToken)).IsTrue();
         _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(bytesBeforeTouch);
         _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
     }
@@ -250,13 +250,13 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical, _testMeter);
         var initial = CreateEntry("a");
 
-        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, initial, cancellationToken)).IsTrue();
+        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, initial, null, cancellationToken)).IsTrue();
         var bytesBeforeUpdate = accounting.ReadEstimatedBytes();
         const string updatedValue = "much-longer-value";
         var replacement = CreateEntry(updatedValue);
         var expectedDelta = EstimateEntryBytes(estimator, CacheName, key, replacement) - EstimateEntryBytes(estimator, CacheName, key, initial);
 
-        _ = await Assert.That(await cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, key, updatedValue, cancellationToken)).IsTrue();
+        _ = await Assert.That(await cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, key, updatedValue, null, cancellationToken)).IsTrue();
 
         _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
         _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(bytesBeforeUpdate + expectedDelta);
@@ -369,24 +369,24 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
 
         internal Func<int, Task<bool>> Update { get; }
 
-        private Task<bool> RemoveCoreAsync(int index) => _cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, _key, _cancellationToken).AsTask();
+        private Task<bool> RemoveCoreAsync(int index) => _cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, _key, null, _cancellationToken).AsTask();
 
         private Task SetEntryCoreAsync(int index)
         {
             var entry = ThrowHelper.Required(_entry, "Entry is required for SetEntryAsync.");
-            return _cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, _key, entry, _cancellationToken).AsTask();
+            return _cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, _key, entry, null, _cancellationToken).AsTask();
         }
 
         private Task<bool> TryAddEntryCoreAsync(int index)
         {
             var entry = ThrowHelper.Required(_entry, "Entry is required for TryAddEntryAsync.");
-            return _cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, _key, entry, _cancellationToken).AsTask();
+            return _cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, _key, entry, null, _cancellationToken).AsTask();
         }
 
         private Task<bool> UpdateCoreAsync(int index)
         {
             var updatedValue = ThrowHelper.Required(_updatedValue, "Updated value is required for UpdateAsync.");
-            return _cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, _key, updatedValue, _cancellationToken).AsTask();
+            return _cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, _key, updatedValue, null, _cancellationToken).AsTask();
         }
     }
 

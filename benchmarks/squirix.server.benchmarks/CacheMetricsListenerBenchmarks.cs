@@ -57,13 +57,13 @@ public class CacheMetricsListenerBenchmarks
     /// <returns>Whether the read found the seeded value.</returns>
     /// <exception cref="InvalidOperationException">The benchmark has not been initialized.</exception>
     [Benchmark]
-    public async ValueTask<bool> GetAsync() => (await ThrowHelper.Required(_cache, "Benchmark was not initialized.").GetValueAsync("cache", "key", CancellationToken.None).ConfigureAwait(false)).Found;
+    public async ValueTask<bool> GetAsync() => (await ThrowHelper.Required(_cache, "Benchmark was not initialized.").GetValueAsync("cache", "key", null, CancellationToken.None).ConfigureAwait(false)).Found;
 
     /// <summary>Overwrites a cached value through the metrics decorator.</summary>
     /// <returns>The completion of the write.</returns>
     /// <exception cref="InvalidOperationException">The benchmark has not been initialized.</exception>
     [Benchmark]
-    public ValueTask SetAsync() => ThrowHelper.Required(_cache, "Benchmark was not initialized.").SetEntryAsync("op", "cache", "key", _entry, CancellationToken.None);
+    public ValueTask SetAsync() => ThrowHelper.Required(_cache, "Benchmark was not initialized.").SetEntryAsync("op", "cache", "key", _entry, null, CancellationToken.None);
 
     /// <summary>Releases the listener and instruments.</summary>
     [GlobalCleanup]

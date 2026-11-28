@@ -52,7 +52,7 @@ public sealed class AdmissionFencedReadTests : DisposableServerUnitTestBase
                 return ValueTask.FromResult(new NodeCacheEntryPeek<string>(Stored, false));
             });
 
-        var added = await cache.TryAddEntryAsync(OperationId, CacheName, Key, Stored, cancellationToken);
+        var added = await cache.TryAddEntryAsync(OperationId, CacheName, Key, Stored, null, cancellationToken);
 
         _ = await Assert.That(added).IsTrue();
     }
@@ -75,7 +75,7 @@ public sealed class AdmissionFencedReadTests : DisposableServerUnitTestBase
                 return ValueTask.FromResult(default(NodeCacheEntryPeek<string>));
             });
 
-        var updated = await cache.UpdateAsync(OperationId, CacheName, Key, "v2", cancellationToken);
+        var updated = await cache.UpdateAsync(OperationId, CacheName, Key, "v2", null, cancellationToken);
 
         _ = await Assert.That(updated).IsTrue();
     }
@@ -90,7 +90,7 @@ public sealed class AdmissionFencedReadTests : DisposableServerUnitTestBase
         _ = inner.TryAddEntryAsync(OperationId, CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(true));
         var cache = Create(inner.Object, static (_, _, _) => false, static (_, _, _) => throw new InvalidOperationException("The fence must not run."));
 
-        var added = await cache.TryAddEntryAsync(OperationId, CacheName, Key, Stored, cancellationToken);
+        var added = await cache.TryAddEntryAsync(OperationId, CacheName, Key, Stored, null, cancellationToken);
 
         _ = await Assert.That(added).IsTrue();
     }
@@ -105,7 +105,7 @@ public sealed class AdmissionFencedReadTests : DisposableServerUnitTestBase
         _ = inner.UpdateAsync(OperationId, CacheName, Key, "v2", Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(true));
         var cache = Create(inner.Object, static (_, _, _) => false, static (_, _, _) => throw new InvalidOperationException("The fence must not run."));
 
-        var updated = await cache.UpdateAsync(OperationId, CacheName, Key, "v2", cancellationToken);
+        var updated = await cache.UpdateAsync(OperationId, CacheName, Key, "v2", null, cancellationToken);
 
         _ = await Assert.That(updated).IsTrue();
     }
@@ -120,7 +120,7 @@ public sealed class AdmissionFencedReadTests : DisposableServerUnitTestBase
         var cache = Create(inner.Object, static (_, _, _) => false, static (_, _, _) => ValueTask.FromResult(new NodeCacheEntryPeek<string>(Stored, false)));
 
         // The inner double has no add set up: a call would throw.
-        var added = await cache.TryAddEntryAsync(OperationId, CacheName, Key, Stored, cancellationToken);
+        var added = await cache.TryAddEntryAsync(OperationId, CacheName, Key, Stored, null, cancellationToken);
 
         _ = await Assert.That(added).IsFalse();
     }
@@ -140,7 +140,7 @@ public sealed class AdmissionFencedReadTests : DisposableServerUnitTestBase
         });
         var cache = Create(inner.Object, static (_, _, _) => false, static (_, _, _) => ValueTask.FromResult(new NodeCacheEntryPeek<string>(Stored, true)));
 
-        var updated = await cache.UpdateAsync(OperationId, CacheName, Key, "v2", cancellationToken);
+        var updated = await cache.UpdateAsync(OperationId, CacheName, Key, "v2", null, cancellationToken);
 
         _ = await Assert.That(updated).IsFalse();
         _ = await Assert.That(Volatile.Read(ref reached)).IsTrue();
@@ -156,7 +156,7 @@ public sealed class AdmissionFencedReadTests : DisposableServerUnitTestBase
         var cache = Create(inner.Object, static (_, _, _) => false, static (_, _, _) => ValueTask.FromResult(default(NodeCacheEntryPeek<string>)));
 
         // The inner double has no update set up: a call would throw.
-        var updated = await cache.UpdateAsync(OperationId, CacheName, Key, "v2", cancellationToken);
+        var updated = await cache.UpdateAsync(OperationId, CacheName, Key, "v2", null, cancellationToken);
 
         _ = await Assert.That(updated).IsFalse();
     }

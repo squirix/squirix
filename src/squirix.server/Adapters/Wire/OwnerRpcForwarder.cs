@@ -8,7 +8,8 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Backpressure;
-using Squirix.Server.Runtime.Invocation;
+using Squirix.Server.Node.Observability;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
 
@@ -43,125 +44,153 @@ internal sealed class OwnerRpcForwarder
         _mutationReplay = mutationReplay;
     }
 
-    internal Task<TryAddAsyncResponse> AddEntryIfAbsentAsync(string owner, TryAddEntryAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+    internal Task<TryAddAsyncResponse> AddEntryIfAbsentAsync(string owner, TryAddEntryAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => ForwardAsync(
         owner,
         CacheOperationNames.TryAdd,
         request,
-        static (client, r, ct) => client.SendAsync(PeerOperation.TryAddEntry, r, TryAddAsyncResponse.Parser, ct),
+        static (client, r, budget, ct) => PeerDeadline.SendAsync(client, PeerOperation.TryAddEntry, r, TryAddAsyncResponse.Parser, budget, ct),
+        deadlineBudget,
+        context,
         cancellationToken);
 
-    internal Task<GetDistributedAsyncResponse> GetDistributedAsync(string owner, GetDistributedAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+    internal Task<GetDistributedAsyncResponse> GetDistributedAsync(string owner, GetDistributedAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => ForwardAsync(
         owner,
         CacheOperationNames.Get,
         request,
-        static (client, r, ct) => client.SendAsync(PeerOperation.GetDistributed, r, GetDistributedAsyncResponse.Parser, ct),
+        static (client, r, budget, ct) => PeerDeadline.SendAsync(client, PeerOperation.GetDistributed, r, GetDistributedAsyncResponse.Parser, budget, ct),
+        deadlineBudget,
+        context,
         cancellationToken);
 
-    internal Task<GetEntryAsyncResponse> GetEntryAsync(string owner, GetEntryAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+    internal Task<GetEntryAsyncResponse> GetEntryAsync(string owner, GetEntryAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => ForwardAsync(
         owner,
         CacheOperationNames.GetEntry,
         request,
-        static (client, r, ct) => client.SendAsync(PeerOperation.GetEntry, r, GetEntryAsyncResponse.Parser, ct),
+        static (client, r, budget, ct) => PeerDeadline.SendAsync(client, PeerOperation.GetEntry, r, GetEntryAsyncResponse.Parser, budget, ct),
+        deadlineBudget,
+        context,
         cancellationToken);
 
-    internal Task<GetExpirationAsyncResponse> GetExpirationAsync(string owner, GetExpirationAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+    internal Task<GetExpirationAsyncResponse> GetExpirationAsync(string owner, GetExpirationAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => ForwardAsync(
         owner,
         CacheOperationNames.GetEntry,
         request,
-        static (client, r, ct) => client.SendAsync(PeerOperation.GetExpiration, r, GetExpirationAsyncResponse.Parser, ct),
+        static (client, r, budget, ct) => PeerDeadline.SendAsync(client, PeerOperation.GetExpiration, r, GetExpirationAsyncResponse.Parser, budget, ct),
+        deadlineBudget,
+        context,
         cancellationToken);
 
-    internal Task<GetOrAddAsyncResponse> GetOrAddAsync(string owner, GetOrAddAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+    internal Task<GetOrAddAsyncResponse> GetOrAddAsync(string owner, GetOrAddAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => ForwardAsync(
         owner,
         CacheOperationNames.TryAdd,
         request,
-        static (client, r, ct) => client.SendAsync(PeerOperation.GetOrAdd, r, GetOrAddAsyncResponse.Parser, ct),
+        static (client, r, budget, ct) => PeerDeadline.SendAsync(client, PeerOperation.GetOrAdd, r, GetOrAddAsyncResponse.Parser, budget, ct),
+        deadlineBudget,
+        context,
         cancellationToken);
 
-    internal Task<GetValueAsyncResponse> GetValueAsync(string owner, GetValueAsyncRequest request, CancellationToken cancellationToken, bool resp = false)
+    internal Task<GetValueAsyncResponse> GetValueAsync(string owner, GetValueAsyncRequest request, CancellationToken cancellationToken, bool resp = false, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null)
     {
-        Func<IPeerClient, GetValueAsyncRequest, CancellationToken, Task<GetValueAsyncResponse>> send = resp
-            ? static (client, r, ct) => client.SendAsync(PeerOperation.GetRespValue, r, GetValueAsyncResponse.Parser, ct)
-            : static (client, r, ct) => client.SendAsync(PeerOperation.GetValue, r, GetValueAsyncResponse.Parser, ct);
-        return ForwardAsync(owner, CacheOperationNames.Get, request, send, cancellationToken);
+        Func<IPeerClient, GetValueAsyncRequest, ServerDeadlineBudget?, CancellationToken, Task<GetValueAsyncResponse>> send = resp
+            ? static (client, r, budget, ct) => PeerDeadline.SendAsync(client, PeerOperation.GetRespValue, r, GetValueAsyncResponse.Parser, budget, ct)
+            : static (client, r, budget, ct) => PeerDeadline.SendAsync(client, PeerOperation.GetValue, r, GetValueAsyncResponse.Parser, budget, ct);
+        return ForwardAsync(owner, CacheOperationNames.Get, request, send, deadlineBudget, context, cancellationToken);
     }
 
-    internal Task<RefreshDistributedAsyncResponse> RefreshDistributedAsync(string owner, RefreshDistributedAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+    internal Task<RefreshDistributedAsyncResponse> RefreshDistributedAsync(string owner, RefreshDistributedAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => ForwardAsync(
         owner,
         CacheOperationNames.Touch,
         request,
-        static (client, r, ct) => client.SendAsync(PeerOperation.RefreshDistributed, r, RefreshDistributedAsyncResponse.Parser, ct),
+        static (client, r, budget, ct) => PeerDeadline.SendAsync(client, PeerOperation.RefreshDistributed, r, RefreshDistributedAsyncResponse.Parser, budget, ct),
+        deadlineBudget,
+        context,
         cancellationToken);
 
-    internal Task<RemoveAsyncResponse> RemoveAsync(string owner, RemoveAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+    internal Task<RemoveAsyncResponse> RemoveAsync(string owner, RemoveAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => ForwardAsync(
         owner,
         CacheOperationNames.Remove,
         request,
-        static (client, r, ct) => client.SendAsync(PeerOperation.Remove, r, RemoveAsyncResponse.Parser, ct),
+        static (client, r, budget, ct) => PeerDeadline.SendAsync(client, PeerOperation.Remove, r, RemoveAsyncResponse.Parser, budget, ct),
+        deadlineBudget,
+        context,
         cancellationToken);
 
-    internal Task<RemoveExpirationAsyncResponse> RemoveExpirationAsync(string owner, RemoveExpirationAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+    internal Task<RemoveExpirationAsyncResponse> RemoveExpirationAsync(string owner, RemoveExpirationAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => ForwardAsync(
         owner,
         CacheOperationNames.RemoveExpiration,
         request,
-        static (client, r, ct) => client.SendAsync(PeerOperation.RemoveExpiration, r, RemoveExpirationAsyncResponse.Parser, ct),
+        static (client, r, budget, ct) => PeerDeadline.SendAsync(client, PeerOperation.RemoveExpiration, r, RemoveExpirationAsyncResponse.Parser, budget, ct),
+        deadlineBudget,
+        context,
         cancellationToken);
 
-    internal Task<UpdateAsyncResponse> ReplaceEntryIfPresentAsync(string owner, SetEntryAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+    internal Task<UpdateAsyncResponse> ReplaceEntryIfPresentAsync(string owner, SetEntryAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => ForwardAsync(
         owner,
         CacheOperationNames.Update,
         request,
-        static (client, r, ct) => client.SendAsync(PeerOperation.ReplaceEntryIfPresent, r, UpdateAsyncResponse.Parser, ct),
+        static (client, r, budget, ct) => PeerDeadline.SendAsync(client, PeerOperation.ReplaceEntryIfPresent, r, UpdateAsyncResponse.Parser, budget, ct),
+        deadlineBudget,
+        context,
         cancellationToken);
 
-    internal Task<SetAsyncResponse> SetDistributedAsync(string owner, SetDistributedAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+    internal Task<SetAsyncResponse> SetDistributedAsync(string owner, SetDistributedAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => ForwardAsync(
         owner,
         CacheOperationNames.Set,
         request,
-        static (client, r, ct) => client.SendAsync(PeerOperation.SetDistributed, r, SetAsyncResponse.Parser, ct),
+        static (client, r, budget, ct) => PeerDeadline.SendAsync(client, PeerOperation.SetDistributed, r, SetAsyncResponse.Parser, budget, ct),
+        deadlineBudget,
+        context,
         cancellationToken);
 
-    internal Task<SetAsyncResponse> SetEntryAsync(string owner, SetEntryAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+    internal Task<SetAsyncResponse> SetEntryAsync(string owner, SetEntryAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => ForwardAsync(
         owner,
         CacheOperationNames.Set,
         request,
-        static (client, r, ct) => client.SendAsync(PeerOperation.SetEntry, r, SetAsyncResponse.Parser, ct),
+        static (client, r, budget, ct) => PeerDeadline.SendAsync(client, PeerOperation.SetEntry, r, SetAsyncResponse.Parser, budget, ct),
+        deadlineBudget,
+        context,
         cancellationToken);
 
-    internal Task<TouchAsyncResponse> TouchAsync(string owner, TouchAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+    internal Task<TouchAsyncResponse> TouchAsync(string owner, TouchAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => ForwardAsync(
         owner,
         CacheOperationNames.Touch,
         request,
-        static (client, r, ct) => client.SendAsync(PeerOperation.Touch, r, TouchAsyncResponse.Parser, ct),
+        static (client, r, budget, ct) => PeerDeadline.SendAsync(client, PeerOperation.Touch, r, TouchAsyncResponse.Parser, budget, ct),
+        deadlineBudget,
+        context,
         cancellationToken);
 
-    internal Task<UpdateAsyncResponse> UpdateAsync(string owner, UpdateAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+    internal Task<UpdateAsyncResponse> UpdateAsync(string owner, UpdateAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => ForwardAsync(
         owner,
         CacheOperationNames.Update,
         request,
-        static (client, r, ct) => client.SendAsync(PeerOperation.Update, r, UpdateAsyncResponse.Parser, ct),
+        static (client, r, budget, ct) => PeerDeadline.SendAsync(client, PeerOperation.Update, r, UpdateAsyncResponse.Parser, budget, ct),
+        deadlineBudget,
+        context,
         cancellationToken);
 
     private static ServerCallException CreatePoolDisposedUnavailable() => new(FrameStatus.Unavailable, "ServerPeer client pool is disposed.");
 
-    private bool PreventsReplay<TRequest>(TRequest request) =>
-        (!_mutationReplay || RemoteInvocationContext.ReportsUnknownMutationOutcome) &&
+    private bool PreventsReplay<TRequest>(TRequest request, ICacheRequestContext? context) =>
+        (!_mutationReplay || context is { Forwarded: false, ReportUnknownMutationOutcome: true }) &&
         request is not (GetEntryAsyncRequest or GetExpirationAsyncRequest or GetValueAsyncRequest or GetDistributedAsyncRequest);
 
     private async Task<TResponse> ForwardAsync<TRequest, TResponse>(
         string owner,
         string operation,
         TRequest request,
-        Func<IPeerClient, TRequest, CancellationToken, Task<TResponse>> call,
+        Func<IPeerClient, TRequest, ServerDeadlineBudget?, CancellationToken, Task<TResponse>> call,
+        ServerDeadlineBudget? deadlineBudget,
+        ICacheRequestContext? context,
         CancellationToken cancellationToken)
     {
-        var (decision, lease) = await InboundAdmissionScope.AcquireIfNeededAsync(_gate, CacheOperationNames.CacheTransport, operation, _clientIdResolver, cancellationToken).ConfigureAwait(false);
+        var (decision, lease) = await InboundAdmission.AcquireIfNeededAsync(_gate, CacheOperationNames.CacheTransport, operation, _clientIdResolver, context, cancellationToken).ConfigureAwait(false);
         if (!decision.IsAccepted)
             throw ServerOpContract.TooManyRequests(decision.RejectReason ?? "unknown");
 
         // The call policy may make several attempts and rethrows only the last failure, so every attempt is recorded: a forward is reported as
         // unreachable only when no attempt connected.
-        var attempts = new ConnectAttempts(PreventsReplay(request));
+        var attempts = new ConnectAttempts(PreventsReplay(request, context));
         using (lease)
         {
             try
@@ -169,9 +198,10 @@ internal sealed class OwnerRpcForwarder
                 // A concurrent pool disposal can dispose the policy between the lookups and the execution; both surface as the pool-disposed failure.
                 var client = _pool.ForNode(owner);
                 return await _pool.PolicyFor(owner).ExecuteAsync(
-                    (Client: client, Request: request, Call: call, Attempts: attempts),
-                    static (s, ct) => new ValueTask<TResponse>(s.Attempts.RunAsync(s.Call, s.Client, s.Request, ct)),
-                    cancellationToken).ConfigureAwait(false);
+                    (Client: client, Request: request, Call: call, Attempts: attempts, Budget: deadlineBudget),
+                    static (s, ct) => new ValueTask<TResponse>(s.Attempts.RunAsync(s.Call, s.Client, s.Request, s.Budget, ct)),
+                    cancellationToken,
+                    deadlineBudget).ConfigureAwait(false);
             }
             catch (ObjectDisposedException)
             {
@@ -222,18 +252,20 @@ internal sealed class OwnerRpcForwarder
         /// <param name="call">Starts the call.</param>
         /// <param name="client">The client of the target.</param>
         /// <param name="request">The request.</param>
+        /// <param name="deadlineBudget">The budget shared by all attempts.</param>
         /// <param name="cancellationToken">The attempt cancellation token.</param>
         /// <returns>The response.</returns>
         /// <exception cref="ServerCallException">The peer call failed.</exception>
         internal async Task<TResponse> RunAsync<TRequest, TResponse>(
-            Func<IPeerClient, TRequest, CancellationToken, Task<TResponse>> call,
+            Func<IPeerClient, TRequest, ServerDeadlineBudget?, CancellationToken, Task<TResponse>> call,
             IPeerClient client,
             TRequest request,
+            ServerDeadlineBudget? deadlineBudget,
             CancellationToken cancellationToken)
         {
             try
             {
-                return await call(client, request, cancellationToken).ConfigureAwait(false);
+                return await call(client, request, deadlineBudget, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (!OwnerUnreachableFailure.IsConnectFailure(ex is ServerCallException rpc ? rpc.InnerException : ex))
             {

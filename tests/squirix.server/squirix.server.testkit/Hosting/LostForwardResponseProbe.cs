@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Utils;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire.Cache;
@@ -77,7 +78,7 @@ internal sealed class LostForwardResponseProbe
         internal int NextAttempt() => Interlocked.Increment(ref _attempts);
     }
 
-    private sealed class LossyClient : IPeerClient
+    private sealed class LossyClient : IPeerDeadlineClient
     {
         private readonly IPeerClient _inner;
         private readonly LostForwardResponseProbe _probe;
@@ -88,7 +89,11 @@ internal sealed class LostForwardResponseProbe
             _probe = probe;
         }
 
-        public async Task<T> SendAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, CancellationToken cancellationToken)
+        public Task<T> SendAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, CancellationToken cancellationToken)
+            where T : WireMessage =>
+            SendWithDeadlineAsync(operation, request, parser, null, cancellationToken);
+
+        public async Task<T> SendWithDeadlineAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, ServerDeadlineBudget? budget, CancellationToken cancellationToken)
             where T : WireMessage
         {
             var key = request switch
@@ -103,13 +108,13 @@ internal sealed class LostForwardResponseProbe
                 _ => null,
             };
             if (key == null || !_probe._faults.TryGetValue(key, out var fault))
-                return await _inner.SendAsync(operation, request, parser, cancellationToken).ConfigureAwait(false);
+                return await PeerDeadline.SendAsync(_inner, operation, request, parser, budget, cancellationToken).ConfigureAwait(false);
 
             var firstAttempt = fault.NextAttempt() == 1;
             if (!firstAttempt && !fault.AllowRetry)
                 throw new ServerCallException(FrameStatus.Unavailable, "Injected: key owner connection is down.");
 
-            var reply = await _inner.SendAsync(operation, request, parser, cancellationToken).ConfigureAwait(false);
+            var reply = await PeerDeadline.SendAsync(_inner, operation, request, parser, budget, cancellationToken).ConfigureAwait(false);
             fault.MarkOwnerExecuted();
             if (!firstAttempt)
                 return reply;

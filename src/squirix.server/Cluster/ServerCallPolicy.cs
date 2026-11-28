@@ -75,7 +75,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
         }
     }
 
-    public async ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken)
+    public async ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null)
     {
         _activeOperations.Enter();
         try
@@ -86,7 +86,6 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             ThrowIfDraining();
             cancellationToken.ThrowIfCancellationRequested();
 
-            var deadlineBudget = ServerRpcDeadlineContext.CurrentBudget;
             if (deadlineBudget is not { } budget || _executor.UsesClock(budget.Clock))
                 return await _executor.RunExecutionAsync(state, action, deadlineBudget, cancellationToken, cancellationToken).ConfigureAwait(false);
 

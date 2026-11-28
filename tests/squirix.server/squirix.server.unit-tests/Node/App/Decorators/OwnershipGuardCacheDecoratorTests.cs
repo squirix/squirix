@@ -32,15 +32,15 @@ public sealed class OwnershipGuardCacheDecoratorTests
 
     private static readonly Func<OwnershipGuardCacheDecorator<string>, Task>[] Operations =
     [
-        static async g => _ = await g.GetEntryAsync("c", "k", CancellationToken.None),
-        static async g => _ = await g.GetValueAsync("c", "k", CancellationToken.None),
-        static async g => _ = await g.RemoveAsync("op", "c", "k", CancellationToken.None),
-        static async g => _ = await g.RemoveExpirationAsync("op", "c", "k", CancellationToken.None),
-        static async g => await g.SetEntryAsync("op", "c", "k", new NodeCacheEntry<string> { Value = "v" }, CancellationToken.None),
-        static async g => _ = await g.TouchAsync("op", "c", "k", TimeSpan.FromMinutes(1), CancellationToken.None),
-        static async g => _ = await g.TryAddEntryAsync("op", "c", "k", new NodeCacheEntry<string> { Value = "v" }, CancellationToken.None),
-        static async g => _ = await g.AddOrGetAsync("op", "c", "k", new NodeCacheEntry<string> { Value = "v" }, CancellationToken.None),
-        static async g => _ = await g.UpdateAsync("op", "c", "k", "w", CancellationToken.None),
+        static async g => _ = await g.GetEntryAsync("c", "k", null, CancellationToken.None),
+        static async g => _ = await g.GetValueAsync("c", "k", null, CancellationToken.None),
+        static async g => _ = await g.RemoveAsync("op", "c", "k", null, CancellationToken.None),
+        static async g => _ = await g.RemoveExpirationAsync("op", "c", "k", null, CancellationToken.None),
+        static async g => await g.SetEntryAsync("op", "c", "k", new NodeCacheEntry<string> { Value = "v" }, null, CancellationToken.None),
+        static async g => _ = await g.TouchAsync("op", "c", "k", TimeSpan.FromMinutes(1), null, CancellationToken.None),
+        static async g => _ = await g.TryAddEntryAsync("op", "c", "k", new NodeCacheEntry<string> { Value = "v" }, null, CancellationToken.None),
+        static async g => _ = await g.AddOrGetAsync("op", "c", "k", new NodeCacheEntry<string> { Value = "v" }, null, CancellationToken.None),
+        static async g => _ = await g.UpdateAsync("op", "c", "k", "w", null, CancellationToken.None),
     ];
 
     /// <summary>A key owned by another node is refused with the stale-owner failure and never reaches the inner cache.</summary>

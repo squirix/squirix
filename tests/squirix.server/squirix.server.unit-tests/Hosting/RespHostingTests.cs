@@ -327,7 +327,7 @@ public sealed class RespHostingTests
     {
         await using var host = await RespTestHost.StartAsync(cancellationToken);
         var services = host.Server.Services;
-        var cache = new CacheCommands(services.Require<BinaryRequestAccessor>(), services.Require<BinaryDispatch>(), null, TimeProvider.System, false);
+        var cache = new CacheCommands(services.Require<BinaryDispatch>(), null, TimeProvider.System, false);
         var session = new Session(null, cache, 1, TimeProvider.System);
         var requests = RespTestHost.Command("PING") + RespTestHost.Command("PING");
         await using var stream = new StalledReplyStream(Encoding.UTF8.GetBytes(requests));

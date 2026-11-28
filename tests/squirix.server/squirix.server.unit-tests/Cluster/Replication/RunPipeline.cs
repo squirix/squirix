@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -46,8 +47,6 @@ internal sealed class RunPipeline : IReplicaCommitPipeline
     internal ConcurrentQueue<string?> AppliedScopes { get; } = new();
 
     /// <summary>Gets the ambient value a test sets before it commits; <see cref="AppliedScopes" /> shows which applies still see it.</summary>
-    internal AsyncLocal<string?> AmbientScope { get; } = new();
-
     /// <summary>Gets the replica slot and log index of every follower reported lagging, in report order.</summary>
     internal ConcurrentQueue<(int ReplicaIndex, ulong LogIndex)> LaggingReplicas { get; } = new();
 
@@ -187,7 +186,7 @@ internal sealed class RunPipeline : IReplicaCommitPipeline
         lock (_sync)
         {
             Applied.Enqueue(mutation.LogIndex);
-            AppliedScopes.Enqueue(AmbientScope.Value);
+            AppliedScopes.Enqueue(Activity.Current?.GetCustomProperty(nameof(AppliedScopes)) as string);
             for (var i = _appliedWaiters.Count - 1; i >= 0; i--)
             {
                 if (Applied.Count < _appliedWaiters[i].Count)

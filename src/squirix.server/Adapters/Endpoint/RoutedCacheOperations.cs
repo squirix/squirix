@@ -5,6 +5,7 @@ using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Serialization.Wire;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -58,73 +59,78 @@ internal sealed class RoutedCacheOperations<T>
             _keyValidation = router.KeyContext;
         }
 
-        internal ValueTask<GetDistributedAsyncResponse> GetDistributedAsync(GetDistributedAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
+        internal ValueTask<GetDistributedAsyncResponse> GetDistributedAsync(GetDistributedAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => _router.ExecuteAsync(
             request.CacheName,
             request.Key,
-            (Adapter: this, Request: request),
-            static (s, owner, ct) => s.Adapter._forwarder.GetDistributedAsync(owner, s.Request, ct),
+            (Adapter: this, Request: request, Context: context),
+            static (s, owner, budget, ct) => s.Adapter._forwarder.GetDistributedAsync(owner, s.Request, ct, budget, s.Context),
             static async (s, ct) =>
             {
-                var payload = await s.Adapter.AccessDistributedLocalAsync(string.Empty, s.Request.CacheName, s.Request.Key, false, ct).ConfigureAwait(false);
+                var payload = await s.Adapter.AccessDistributedLocalAsync(string.Empty, s.Request.CacheName, s.Request.Key, false, ct, s.Context).ConfigureAwait(false);
                 return payload is { } bytes ? new GetDistributedAsyncResponse { Found = true, Value = bytes } : new GetDistributedAsyncResponse();
             },
-            cancellationToken);
+            cancellationToken,
+            (deadlineBudget, context));
 
-        internal ValueTask<GetEntryAsyncResponse> GetEntryAsync(GetEntryAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
+        internal ValueTask<GetEntryAsyncResponse> GetEntryAsync(GetEntryAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => _router.ExecuteAsync(
             request.CacheName,
             request.Key,
-            (Adapter: this, Request: request),
-            static (s, owner, ct) => s.Adapter._forwarder.GetEntryAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter.GetEntryLocalAsync(s.Request, ct),
-            cancellationToken);
+            (Adapter: this, Request: request, Context: context),
+            static (s, owner, budget, ct) => s.Adapter._forwarder.GetEntryAsync(owner, s.Request, ct, budget, s.Context),
+            static (s, ct) => s.Adapter.GetEntryLocalAsync(s.Request, ct, s.Context),
+            cancellationToken,
+            (deadlineBudget, context));
 
-        internal ValueTask<GetExpirationAsyncResponse> GetExpirationAsync(GetExpirationAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
+        internal ValueTask<GetExpirationAsyncResponse> GetExpirationAsync(GetExpirationAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => _router.ExecuteAsync(
             request.CacheName,
             request.Key,
-            (Adapter: this, Request: request),
-            static (s, owner, ct) => s.Adapter._forwarder.GetExpirationAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter.GetExpirationLocalAsync(s.Request, ct),
-            cancellationToken);
+            (Adapter: this, Request: request, Context: context),
+            static (s, owner, budget, ct) => s.Adapter._forwarder.GetExpirationAsync(owner, s.Request, ct, budget, s.Context),
+            static (s, ct) => s.Adapter.GetExpirationLocalAsync(s.Request, ct, s.Context),
+            cancellationToken,
+            (deadlineBudget, context));
 
-        internal ValueTask<GetValueAsyncResponse> GetValueAsync(GetValueAsyncRequest request, CancellationToken cancellationToken) => GetValueAsync(request, false, cancellationToken);
+        internal ValueTask<GetValueAsyncResponse> GetValueAsync(GetValueAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => GetValueAsync(request, false, deadlineBudget, context, cancellationToken);
 
-        internal ValueTask<GetValueAsyncResponse> GetRespValueAsync(GetValueAsyncRequest request, CancellationToken cancellationToken) => GetValueAsync(request, true, cancellationToken);
+        internal ValueTask<GetValueAsyncResponse> GetRespValueAsync(GetValueAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => GetValueAsync(request, true, deadlineBudget, context, cancellationToken);
 
-        internal ValueTask<RefreshDistributedAsyncResponse> RefreshDistributedAsync(RefreshDistributedAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
+        internal ValueTask<RefreshDistributedAsyncResponse> RefreshDistributedAsync(RefreshDistributedAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => _router.ExecuteAsync(
             request.CacheName,
             request.Key,
-            (Adapter: this, Request: request),
-            static (s, owner, ct) => s.Adapter._forwarder.RefreshDistributedAsync(owner, s.Request, ct),
+            (Adapter: this, Request: request, Context: context),
+            static (s, owner, budget, ct) => s.Adapter._forwarder.RefreshDistributedAsync(owner, s.Request, ct, budget, s.Context),
             static async (s, ct) =>
             {
-                _ = await s.Adapter.AccessDistributedLocalAsync(s.Request.OperationId, s.Request.CacheName, s.Request.Key, true, ct).ConfigureAwait(false);
+                _ = await s.Adapter.AccessDistributedLocalAsync(s.Request.OperationId, s.Request.CacheName, s.Request.Key, true, ct, s.Context).ConfigureAwait(false);
                 return RefreshDistributedAsyncResponse.Instance;
             },
-            cancellationToken);
+            cancellationToken,
+            (deadlineBudget, context));
 
-        private ValueTask<GetValueAsyncResponse> GetValueAsync(GetValueAsyncRequest request, bool resp, CancellationToken cancellationToken) => _router.ExecuteAsync(
+        private ValueTask<GetValueAsyncResponse> GetValueAsync(GetValueAsyncRequest request, bool resp, ServerDeadlineBudget? deadlineBudget, ICacheRequestContext? context, CancellationToken cancellationToken) => _router.ExecuteAsync(
             request.CacheName,
             request.Key,
-            (Adapter: this, Request: request, Resp: resp),
-            static (s, owner, ct) => s.Adapter._forwarder.GetValueAsync(owner, s.Request, ct, s.Resp),
-            static (s, ct) => s.Adapter.GetValueLocalAsync(s.Request, s.Resp, ct),
-            cancellationToken);
+            (Adapter: this, Request: request, Context: context, Resp: resp),
+            static (s, owner, budget, ct) => s.Adapter._forwarder.GetValueAsync(owner, s.Request, ct, s.Resp, budget, s.Context),
+            static (s, ct) => s.Adapter.GetValueLocalAsync(s.Request, s.Resp, ct, s.Context),
+            cancellationToken,
+            (deadlineBudget, context));
 
-        private ValueTask<ReadOnlyMemory<byte>?> AccessDistributedLocalAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken)
+        private ValueTask<ReadOnlyMemory<byte>?> AccessDistributedLocalAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken, ICacheRequestContext? context = null)
         {
             var cache = SquirixServiceAdapterValidation.RequireCacheName(cacheName);
-            SquirixServiceAdapterValidation.RequireValidCacheKey(key, _keyValidation);
+            SquirixServiceAdapterValidation.RequireValidCacheKey(key, context ?? _keyValidation);
             var access = _distributedAccess ??
                          ThrowHelper.Throw<IDistributedCacheAccess>(new ServerCallException(FrameStatus.Unimplemented, "Distributed cache access is unavailable."));
-            return access.AccessAsync(operationId, cache, key, refresh, cancellationToken);
+            return access.AccessAsync(operationId, cache, key, refresh, cancellationToken, context);
         }
 
         private ICacheApi<T> ApiForRequest(string cacheName) => _cacheOperations.ForCache(SquirixServiceAdapterValidation.RequireCacheName(cacheName));
 
-        private async ValueTask<GetEntryAsyncResponse> GetEntryLocalAsync(GetEntryAsyncRequest request, CancellationToken cancellationToken)
+        private async ValueTask<GetEntryAsyncResponse> GetEntryLocalAsync(GetEntryAsyncRequest request, CancellationToken cancellationToken, ICacheRequestContext? context = null)
         {
-            SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
-            var entry = await ApiForRequest(request.CacheName).GetEntryAsync(request.Key, cancellationToken).ConfigureAwait(false);
+            SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, context ?? _keyValidation);
+            var entry = await ApiForRequest(request.CacheName).GetEntryAsync(request.Key, cancellationToken, context).ConfigureAwait(false);
             if (entry == null)
                 return new GetEntryAsyncResponse { Found = false };
 
@@ -135,10 +141,10 @@ internal sealed class RoutedCacheOperations<T>
             return response;
         }
 
-        private async ValueTask<GetExpirationAsyncResponse> GetExpirationLocalAsync(GetExpirationAsyncRequest request, CancellationToken cancellationToken)
+        private async ValueTask<GetExpirationAsyncResponse> GetExpirationLocalAsync(GetExpirationAsyncRequest request, CancellationToken cancellationToken, ICacheRequestContext? context = null)
         {
-            SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
-            var read = await ApiForRequest(request.CacheName).GetValueWithDeadlineAsync(request.Key, cancellationToken).ConfigureAwait(false);
+            SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, context ?? _keyValidation);
+            var read = await ApiForRequest(request.CacheName).GetValueWithDeadlineAsync(request.Key, cancellationToken, context).ConfigureAwait(false);
             if (!read.Found)
                 return new GetExpirationAsyncResponse { Found = false };
 
@@ -151,10 +157,10 @@ internal sealed class RoutedCacheOperations<T>
             return response;
         }
 
-        private async ValueTask<GetValueAsyncResponse> GetValueLocalAsync(GetValueAsyncRequest request, bool resp, CancellationToken cancellationToken)
+        private async ValueTask<GetValueAsyncResponse> GetValueLocalAsync(GetValueAsyncRequest request, bool resp, CancellationToken cancellationToken, ICacheRequestContext? context = null)
         {
-            SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
-            var result = await ApiForRequest(request.CacheName).GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
+            SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, context ?? _keyValidation);
+            var result = await ApiForRequest(request.CacheName).GetValueAsync(request.Key, cancellationToken, context).ConfigureAwait(false);
             if (resp && result.Found)
             {
                 // A hit without a value represents a type mismatch to the RESP adapter.
@@ -199,85 +205,94 @@ internal sealed class RoutedCacheOperations<T>
             _handlers = new MutationHandlers(cacheOperations, replicated, journal, router.KeyContext);
         }
 
-        internal ValueTask<GetOrAddAsyncResponse> GetOrAddAsync(GetOrAddAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
+        internal ValueTask<GetOrAddAsyncResponse> GetOrAddAsync(GetOrAddAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => _router.ExecuteAsync(
             request.CacheName,
             request.Key,
-            (Adapter: this, Request: request),
-            static (s, owner, ct) => s.Adapter._forwarder.GetOrAddAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter._handlers.GetOrAddAsyncCoreAsync(s.Request, ct),
-            cancellationToken);
+            (Adapter: this, Request: request, Context: context),
+            static (s, owner, budget, ct) => s.Adapter._forwarder.GetOrAddAsync(owner, s.Request, ct, budget, s.Context),
+            static (s, ct) => s.Adapter._handlers.GetOrAddAsyncCoreAsync(s.Request, ct, s.Context),
+            cancellationToken,
+            (deadlineBudget, context));
 
-        internal ValueTask<RemoveAsyncResponse> RemoveAsync(RemoveAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
+        internal ValueTask<RemoveAsyncResponse> RemoveAsync(RemoveAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => _router.ExecuteAsync(
             request.CacheName,
             request.Key,
-            (Adapter: this, Request: request),
-            static (s, owner, ct) => s.Adapter._forwarder.RemoveAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter._handlers.RemoveAsyncCoreAsync(s.Request, ct),
-            cancellationToken);
+            (Adapter: this, Request: request, Context: context),
+            static (s, owner, budget, ct) => s.Adapter._forwarder.RemoveAsync(owner, s.Request, ct, budget, s.Context),
+            static (s, ct) => s.Adapter._handlers.RemoveAsyncCoreAsync(s.Request, ct, s.Context),
+            cancellationToken,
+            (deadlineBudget, context));
 
-        internal ValueTask<RemoveExpirationAsyncResponse> RemoveExpirationAsync(RemoveExpirationAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
+        internal ValueTask<RemoveExpirationAsyncResponse> RemoveExpirationAsync(RemoveExpirationAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => _router.ExecuteAsync(
             request.CacheName,
             request.Key,
-            (Adapter: this, Request: request),
-            static (s, owner, ct) => s.Adapter._forwarder.RemoveExpirationAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter._handlers.RemoveExpirationAsyncCoreAsync(s.Request, ct),
-            cancellationToken);
+            (Adapter: this, Request: request, Context: context),
+            static (s, owner, budget, ct) => s.Adapter._forwarder.RemoveExpirationAsync(owner, s.Request, ct, budget, s.Context),
+            static (s, ct) => s.Adapter._handlers.RemoveExpirationAsyncCoreAsync(s.Request, ct, s.Context),
+            cancellationToken,
+            (deadlineBudget, context));
 
-        internal ValueTask<SetAsyncResponse> SetDistributedAsync(SetDistributedAsyncRequest request, CancellationToken cancellationToken) =>
+        internal ValueTask<SetAsyncResponse> SetDistributedAsync(SetDistributedAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) =>
             _router.ExecuteAsync(
                 request.CacheName,
                 request.Key,
-                (Adapter: this, Request: request, OriginalValue: request.Value),
-                static (s, owner, ct) =>
+                (Adapter: this, Request: request, Context: context, OriginalValue: request.Value),
+                static (s, owner, budget, ct) =>
                 {
                     // The first forward takes ownership. A reroute reuses the same owned bytes.
                     if (!s.OriginalValue.IsEmpty && s.Request.Value.Equals(s.OriginalValue))
                         s.Request.Value = s.OriginalValue.ToArray();
 
-                    return s.Adapter._forwarder.SetDistributedAsync(owner, s.Request, ct);
+                    return s.Adapter._forwarder.SetDistributedAsync(owner, s.Request, ct, budget, s.Context);
                 },
-                static (s, ct) => s.Adapter._handlers.SetDistributedAsyncCoreAsync(s.Request, s.Request.Value, ct),
-                cancellationToken);
+                static (s, ct) => s.Adapter._handlers.SetDistributedAsyncCoreAsync(s.Request, s.Request.Value, ct, s.Context),
+                cancellationToken,
+                (deadlineBudget, context));
 
-        internal ValueTask<SetAsyncResponse> SetEntryAsync(SetEntryAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
+        internal ValueTask<SetAsyncResponse> SetEntryAsync(SetEntryAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => _router.ExecuteAsync(
             request.CacheName,
             request.Key,
-            (Adapter: this, Request: request),
-            static (s, owner, ct) => s.Adapter._forwarder.SetEntryAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter._handlers.SetEntryAsyncCoreAsync(s.Request, ct),
-            cancellationToken);
+            (Adapter: this, Request: request, Context: context),
+            static (s, owner, budget, ct) => s.Adapter._forwarder.SetEntryAsync(owner, s.Request, ct, budget, s.Context),
+            static (s, ct) => s.Adapter._handlers.SetEntryAsyncCoreAsync(s.Request, ct, s.Context),
+            cancellationToken,
+            (deadlineBudget, context));
 
-        internal ValueTask<TouchAsyncResponse> TouchAsync(TouchAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
+        internal ValueTask<TouchAsyncResponse> TouchAsync(TouchAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => _router.ExecuteAsync(
             request.CacheName,
             request.Key,
-            (Adapter: this, Request: request),
-            static (s, owner, ct) => s.Adapter._forwarder.TouchAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter._handlers.TouchAsyncCoreAsync(s.Request, ct),
-            cancellationToken);
+            (Adapter: this, Request: request, Context: context),
+            static (s, owner, budget, ct) => s.Adapter._forwarder.TouchAsync(owner, s.Request, ct, budget, s.Context),
+            static (s, ct) => s.Adapter._handlers.TouchAsyncCoreAsync(s.Request, ct, s.Context),
+            cancellationToken,
+            (deadlineBudget, context));
 
-        internal ValueTask<TryAddAsyncResponse> AddEntryIfAbsentAsync(TryAddEntryAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
+        internal ValueTask<TryAddAsyncResponse> AddEntryIfAbsentAsync(TryAddEntryAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => _router.ExecuteAsync(
             request.CacheName,
             request.Key,
-            (Adapter: this, Request: request),
-            static (s, owner, ct) => s.Adapter._forwarder.AddEntryIfAbsentAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter._handlers.AddEntryAsyncCoreAsync(s.Request, ct),
-            cancellationToken);
+            (Adapter: this, Request: request, Context: context),
+            static (s, owner, budget, ct) => s.Adapter._forwarder.AddEntryIfAbsentAsync(owner, s.Request, ct, budget, s.Context),
+            static (s, ct) => s.Adapter._handlers.AddEntryAsyncCoreAsync(s.Request, ct, s.Context),
+            cancellationToken,
+            (deadlineBudget, context));
 
-        internal ValueTask<UpdateAsyncResponse> ReplaceEntryIfPresentAsync(SetEntryAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
+        internal ValueTask<UpdateAsyncResponse> ReplaceEntryIfPresentAsync(SetEntryAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => _router.ExecuteAsync(
             request.CacheName,
             request.Key,
-            (Adapter: this, Request: request),
-            static (s, owner, ct) => s.Adapter._forwarder.ReplaceEntryIfPresentAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter._handlers.ReplaceEntryIfPresentAsync(s.Request, ct),
-            cancellationToken);
+            (Adapter: this, Request: request, Context: context),
+            static (s, owner, budget, ct) => s.Adapter._forwarder.ReplaceEntryIfPresentAsync(owner, s.Request, ct, budget, s.Context),
+            static (s, ct) => s.Adapter._handlers.ReplaceEntryIfPresentAsync(s.Request, ct, s.Context),
+            cancellationToken,
+            (deadlineBudget, context));
 
-        internal ValueTask<UpdateAsyncResponse> UpdateAsync(UpdateAsyncRequest request, CancellationToken cancellationToken) => _router.ExecuteAsync(
+        internal ValueTask<UpdateAsyncResponse> UpdateAsync(UpdateAsyncRequest request, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null, ICacheRequestContext? context = null) => _router.ExecuteAsync(
             request.CacheName,
             request.Key,
-            (Adapter: this, Request: request),
-            static (s, owner, ct) => s.Adapter._forwarder.UpdateAsync(owner, s.Request, ct),
-            static (s, ct) => s.Adapter._handlers.UpdateAsyncCoreAsync(s.Request, ct),
-            cancellationToken);
+            (Adapter: this, Request: request, Context: context),
+            static (s, owner, budget, ct) => s.Adapter._forwarder.UpdateAsync(owner, s.Request, ct, budget, s.Context),
+            static (s, ct) => s.Adapter._handlers.UpdateAsyncCoreAsync(s.Request, ct, s.Context),
+            cancellationToken,
+            (deadlineBudget, context));
 
         [Immutable]
         private sealed class MutationHandlers
@@ -296,31 +311,32 @@ internal sealed class RoutedCacheOperations<T>
                 _keyValidation = keyValidation;
             }
 
-            internal async ValueTask<TryAddAsyncResponse> AddEntryAsyncCoreAsync(TryAddEntryAsyncRequest request, CancellationToken cancellationToken)
+            internal async ValueTask<TryAddAsyncResponse> AddEntryAsyncCoreAsync(TryAddEntryAsyncRequest request, CancellationToken cancellationToken, ICacheRequestContext? context = null)
             {
                 var operationId = _replicated ? RpcMutationContracts.RequireOperationId(request.OperationId) : string.Empty;
                 if (_journal != null)
                     await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
-                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
+                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, context ?? _keyValidation);
 
                 var added = await _cacheOperations.ForCache(cacheName).TryAddEntryAsync(
                     operationId,
                     request.Key,
                     request.Entry.MapFromWire<T>(),
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    context).ConfigureAwait(false);
                 return TryAddAsyncResponse.FromResult(added);
             }
 
-            internal async ValueTask<GetOrAddAsyncResponse> GetOrAddAsyncCoreAsync(GetOrAddAsyncRequest request, CancellationToken cancellationToken)
+            internal async ValueTask<GetOrAddAsyncResponse> GetOrAddAsyncCoreAsync(GetOrAddAsyncRequest request, CancellationToken cancellationToken, ICacheRequestContext? context = null)
             {
                 var operationId = _replicated ? RpcMutationContracts.RequireOperationId(request.OperationId) : string.Empty;
                 if (_journal != null)
                     await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
-                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
+                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, context ?? _keyValidation);
                 var api = _cacheOperations.ForCache(cacheName);
 
                 // The add runs first, with the operation id: a retry whose RPC record is gone replays the recorded outcome of the add instead
@@ -329,7 +345,7 @@ internal sealed class RoutedCacheOperations<T>
                 var entry = request.Entry.MapFromWire<T>();
 
                 // The response of an add that took effect carries no value and is known before the add is applied.
-                var (added, existing) = await api.AddOrGetAsync(operationId, request.Key, entry, cancellationToken)
+                var (added, existing) = await api.AddOrGetAsync(operationId, request.Key, entry, cancellationToken, context)
                                                  .ConfigureAwait(false);
                 return added
                     ? AddedResponse()
@@ -340,43 +356,43 @@ internal sealed class RoutedCacheOperations<T>
                     };
             }
 
-            internal async ValueTask<RemoveAsyncResponse> RemoveAsyncCoreAsync(RemoveAsyncRequest request, CancellationToken cancellationToken)
+            internal async ValueTask<RemoveAsyncResponse> RemoveAsyncCoreAsync(RemoveAsyncRequest request, CancellationToken cancellationToken, ICacheRequestContext? context = null)
             {
                 var operationId = _replicated ? RpcMutationContracts.RequireOperationId(request.OperationId) : string.Empty;
                 if (_journal != null)
                     await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
-                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
+                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, context ?? _keyValidation);
 
-                var result = await _cacheOperations.ForCache(cacheName).RemoveAsync(operationId, request.Key, cancellationToken)
+                var result = await _cacheOperations.ForCache(cacheName).RemoveAsync(operationId, request.Key, cancellationToken, context)
                                                    .ConfigureAwait(false);
                 return RemoveResponse(result);
             }
 
-            internal async ValueTask<RemoveExpirationAsyncResponse> RemoveExpirationAsyncCoreAsync(RemoveExpirationAsyncRequest request, CancellationToken cancellationToken)
+            internal async ValueTask<RemoveExpirationAsyncResponse> RemoveExpirationAsyncCoreAsync(RemoveExpirationAsyncRequest request, CancellationToken cancellationToken, ICacheRequestContext? context = null)
             {
                 var operationId = _replicated ? RpcMutationContracts.RequireOperationId(request.OperationId) : string.Empty;
                 if (_journal != null)
                     await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
-                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
+                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, context ?? _keyValidation);
 
                 var found = await _cacheOperations.ForCache(cacheName)
-                                                  .RemoveExpirationAsync(operationId, request.Key, cancellationToken)
+                                                  .RemoveExpirationAsync(operationId, request.Key, cancellationToken, context)
                                                   .ConfigureAwait(false);
                 return RemoveExpirationAsyncResponse.FromResult(found);
             }
 
-            internal async ValueTask<SetAsyncResponse> SetDistributedAsyncCoreAsync(SetDistributedAsyncRequest request, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
+            internal async ValueTask<SetAsyncResponse> SetDistributedAsyncCoreAsync(SetDistributedAsyncRequest request, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken, ICacheRequestContext? context = null)
             {
                 var operationId = _replicated ? RpcMutationContracts.RequireOperationId(request.OperationId) : string.Empty;
                 if (_journal != null)
                     await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
-                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
+                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, context ?? _keyValidation);
                 var policy = new DistributedCachePolicy(request.HasExpiresAtUnixMs ? request.ExpiresAtUnixMs : null, request.HasSlidingTicks ? request.SlidingTicks : null);
                 long? ttl = request.HasTtlTicks ? request.TtlTicks : null;
                 if (!policy.IsValid() || ttl is <= 0)
@@ -390,71 +406,75 @@ internal sealed class RoutedCacheOperations<T>
                     operationId,
                     request.Key,
                     new NodeCacheEntry<T>(value, write),
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    context).ConfigureAwait(false);
                 return SetAsyncResponse.Instance;
             }
 
-            internal async ValueTask<SetAsyncResponse> SetEntryAsyncCoreAsync(SetEntryAsyncRequest request, CancellationToken cancellationToken)
+            internal async ValueTask<SetAsyncResponse> SetEntryAsyncCoreAsync(SetEntryAsyncRequest request, CancellationToken cancellationToken, ICacheRequestContext? context = null)
             {
                 var operationId = _replicated ? RpcMutationContracts.RequireOperationId(request.OperationId) : string.Empty;
                 if (_journal != null)
                     await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
-                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
+                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, context ?? _keyValidation);
 
                 await _cacheOperations.ForCache(cacheName).SetEntryAsync(
                     operationId,
                     request.Key,
                     request.Entry.MapFromWire<T>(),
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    context).ConfigureAwait(false);
                 return SetAsyncResponse.Instance;
             }
 
-            internal async ValueTask<TouchAsyncResponse> TouchAsyncCoreAsync(TouchAsyncRequest request, CancellationToken cancellationToken)
+            internal async ValueTask<TouchAsyncResponse> TouchAsyncCoreAsync(TouchAsyncRequest request, CancellationToken cancellationToken, ICacheRequestContext? context = null)
             {
                 var operationId = _replicated ? RpcMutationContracts.RequireOperationId(request.OperationId) : string.Empty;
                 if (_journal != null)
                     await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
-                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
+                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, context ?? _keyValidation);
 
                 var found = await _cacheOperations.ForCache(cacheName).TouchAsync(
                     operationId,
                     request.Key,
                     request.Expiration ?? MissingExpiration(),
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    context).ConfigureAwait(false);
                 return TouchAsyncResponse.FromResult(found);
             }
 
-            internal async ValueTask<UpdateAsyncResponse> ReplaceEntryIfPresentAsync(SetEntryAsyncRequest request, CancellationToken cancellationToken)
+            internal async ValueTask<UpdateAsyncResponse> ReplaceEntryIfPresentAsync(SetEntryAsyncRequest request, CancellationToken cancellationToken, ICacheRequestContext? context = null)
             {
                 var operationId = _replicated ? RpcMutationContracts.RequireOperationId(request.OperationId) : string.Empty;
                 if (_journal != null)
                     await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
-                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
+                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, context ?? _keyValidation);
                 var replaced = await _cacheOperations.ForCache(cacheName)
-                    .TryReplaceEntryAsync(operationId, request.Key, request.Entry.MapFromWire<T>(), cancellationToken).ConfigureAwait(false);
+                    .TryReplaceEntryAsync(operationId, request.Key, request.Entry.MapFromWire<T>(), cancellationToken, context).ConfigureAwait(false);
                 return new UpdateAsyncResponse { Updated = replaced };
             }
 
-            internal async ValueTask<UpdateAsyncResponse> UpdateAsyncCoreAsync(UpdateAsyncRequest request, CancellationToken cancellationToken)
+            internal async ValueTask<UpdateAsyncResponse> UpdateAsyncCoreAsync(UpdateAsyncRequest request, CancellationToken cancellationToken, ICacheRequestContext? context = null)
             {
                 var operationId = _replicated ? RpcMutationContracts.RequireOperationId(request.OperationId) : string.Empty;
                 if (_journal != null)
                     await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
                 var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
-                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, _keyValidation);
+                SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key, context ?? _keyValidation);
 
                 var updated = await _cacheOperations.ForCache(cacheName).UpdateAsync(
                     operationId,
                     request.Key,
                     request.Entry.MapFromWire<T>().Value,
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    context).ConfigureAwait(false);
                 return UpdateAsyncResponse.FromResult(updated);
             }
 

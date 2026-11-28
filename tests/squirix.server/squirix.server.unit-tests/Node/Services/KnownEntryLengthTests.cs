@@ -71,8 +71,8 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
             cancellationToken);
 
         await using var chain = await Chain.OpenAsync(persistence, clock, expectations.Object, cancellationToken);
-        await chain.Cache.SetEntryAsync(string.Empty, CacheName, "written", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), 1, deadline, null, Tags()), cancellationToken);
-        _ = await chain.Cache.TryAddEntryAsync(string.Empty, CacheName, "added", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Replacement).Bytes)), cancellationToken);
+        await chain.Cache.SetEntryAsync(string.Empty, CacheName, "written", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), 1, deadline, null, Tags()), null, cancellationToken);
+        _ = await chain.Cache.TryAddEntryAsync(string.Empty, CacheName, "added", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Replacement).Bytes)), null, cancellationToken);
         foreach (var record in records)
             await ReplicaCacheApplier.ApplyAsync(chain.Cache, in record, cancellationToken);
 
@@ -178,15 +178,15 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
         {
             var cache = chain.Cache;
             var deadline = clock.GetUtcNow().UtcDateTime.AddHours(1);
-            await cache.SetEntryAsync(string.Empty, CacheName, "plain", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes)), cancellationToken);
-            await cache.SetEntryAsync(string.Empty, CacheName, "tagged", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), 3, deadline, null, Tags()), cancellationToken);
-            await cache.SetEntryAsync(string.Empty, CacheName, "relative", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), expiration: TimeSpan.FromMinutes(5)), cancellationToken);
-            _ = await cache.TryAddEntryAsync(string.Empty, CacheName, "added", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), 1, deadline, null, Tags()), cancellationToken);
-            _ = await cache.TryAddEntryAsync(string.Empty, CacheName, "added-relative", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), expiration: TimeSpan.FromMinutes(5)), cancellationToken);
-            _ = await cache.TryAddEntryAsync(string.Empty, CacheName, "added", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Replacement).Bytes)), cancellationToken);
-            _ = await cache.UpdateAsync(string.Empty, CacheName, "tagged", StoredValue.FromJson(JsonUtf8Value.FromElement(Replacement).Bytes), cancellationToken);
-            _ = await cache.TouchAsync(string.Empty, CacheName, "plain", TimeSpan.FromHours(2), cancellationToken);
-            _ = await cache.RemoveExpirationAsync(string.Empty, CacheName, "added", cancellationToken);
+            await cache.SetEntryAsync(string.Empty, CacheName, "plain", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes)), null, cancellationToken);
+            await cache.SetEntryAsync(string.Empty, CacheName, "tagged", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), 3, deadline, null, Tags()), null, cancellationToken);
+            await cache.SetEntryAsync(string.Empty, CacheName, "relative", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), expiration: TimeSpan.FromMinutes(5)), null, cancellationToken);
+            _ = await cache.TryAddEntryAsync(string.Empty, CacheName, "added", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), 1, deadline, null, Tags()), null, cancellationToken);
+            _ = await cache.TryAddEntryAsync(string.Empty, CacheName, "added-relative", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Tree).Bytes), expiration: TimeSpan.FromMinutes(5)), null, cancellationToken);
+            _ = await cache.TryAddEntryAsync(string.Empty, CacheName, "added", new NodeCacheEntry<StoredValue>(StoredValue.FromJson(JsonUtf8Value.FromElement(Replacement).Bytes)), null, cancellationToken);
+            _ = await cache.UpdateAsync(string.Empty, CacheName, "tagged", StoredValue.FromJson(JsonUtf8Value.FromElement(Replacement).Bytes), null, cancellationToken);
+            _ = await cache.TouchAsync(string.Empty, CacheName, "plain", TimeSpan.FromHours(2), null, cancellationToken);
+            _ = await cache.RemoveExpirationAsync(string.Empty, CacheName, "added", null, cancellationToken);
             accounted = BytesOf(chain.Physical);
             walked = await WalkedBytesAsync(chain.Physical, estimator, cancellationToken);
             count = CountOf(chain.Physical);

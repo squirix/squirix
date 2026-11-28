@@ -74,8 +74,7 @@ public sealed class ConnectionAdmissionTests
             Audience = credentials.Audience,
             SigningKey = new JwtVerificationKey(credentials.GetSigningKey()),
         };
-        var accessor = new BinaryRequestAccessor();
-        IBackpressureClientIdResolver clients = perClient ? new BinaryClientIdResolver(accessor) : SharedClientIdResolver.Instance;
+        IBackpressureClientIdResolver clients = perClient ? new BinaryClientIdResolver() : SharedClientIdResolver.Instance;
         await using var services = new TestServiceCollection().AddSingleton(clients).BuildServiceProvider();
         using var validator = new NativeConnectionAuthenticationValidator(() => options, TimeProvider.System, services);
         using var connection = new BinaryConnection("test", new NativeBinaryEndpoint.StreamPipe(Stream.Null), null, null, cancellationToken, cancellationToken);
@@ -85,15 +84,8 @@ public sealed class ConnectionAdmissionTests
         var status = await validator.AuthorizeAsync(identity!, request, cancellationToken);
         _ = await Assert.That(status).IsEqualTo(FrameStatus.Ok);
         _ = await Assert.That(request.User != null).IsEqualTo(perClient);
-        accessor.Current = request;
-        try
-        {
-            _ = await Assert.That(clients.Resolve()).IsEqualTo(perClient ? "jwt:tenant-a" : ClientIds.Runtime);
-        }
-        finally
-        {
-            accessor.Current = null;
-        }
+        var clientId = perClient ? BinaryClientIdResolver.ResolveRequest(request) : clients.Resolve();
+        _ = await Assert.That(clientId).IsEqualTo(perClient ? "jwt:tenant-a" : ClientIds.Runtime);
 
         options = new JwtValidationOptions();
         _ = await Assert.That(await validator.AuthorizeAsync(identity!, request, cancellationToken)).IsEqualTo(FrameStatus.Unavailable);

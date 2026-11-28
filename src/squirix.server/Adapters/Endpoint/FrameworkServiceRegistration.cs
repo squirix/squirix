@@ -6,7 +6,6 @@ using Squirix.Server.Core;
 using Squirix.Server.Logging;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
-using Squirix.Server.Runtime.Invocation;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
@@ -21,7 +20,6 @@ internal static class FrameworkServiceRegistration
             sp.Require<RoutedCacheOperations<StoredValue>>(),
             sp.Require<CacheRequestAdmission>(),
             sp.Require<ServerCallCorrelation>(),
-            sp.Require<IRemoteInvocationScopeFactory>(),
             sp.Find<BinaryCallObserver>()));
 
         _ = services.Own(static sp => new ReadinessMonitor(

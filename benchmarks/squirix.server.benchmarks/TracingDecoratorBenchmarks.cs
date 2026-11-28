@@ -50,7 +50,7 @@ public class TracingDecoratorBenchmarks
     public async Task GetValueAsync()
     {
         for (var i = 0; i < OperationsPerInvoke; i++)
-            _ = await _cache.GetValueAsync(CacheName, KeyName, CancellationToken.None).ConfigureAwait(false);
+            _ = await _cache.GetValueAsync(CacheName, KeyName, null, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Tracer that reports tracing as disabled, like a production node without a listener.</summary>

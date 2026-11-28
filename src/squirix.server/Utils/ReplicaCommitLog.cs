@@ -12,10 +12,10 @@ internal static class ReplicaCommitLog
             Events.DurablePublishRetriedEvent.Write(logger, ServerLogLevel.Warning, null, (path, attempts, holders));
     }
 
-    internal static void ReplicaCommitOutcomeUnknown(IServerLogger logger, Exception exception)
+    internal static void ReplicaCommitOutcomeUnknown(IServerLogger logger, Exception exception, object? scope = null)
     {
         if (logger.IsEnabled(ServerLogLevel.Warning))
-            Events.ReplicaCommitOutcomeUnknownEvent.Write(logger, ServerLogLevel.Warning, exception, ValueTuple.Create());
+            Events.ReplicaCommitOutcomeUnknownEvent.Write(logger, ServerLogLevel.Warning, exception, ValueTuple.Create(), scope);
     }
 
     internal static void ReplicaCommitterLeakedOnShutdownTimeout(IServerLogger logger, TimeSpan budget)

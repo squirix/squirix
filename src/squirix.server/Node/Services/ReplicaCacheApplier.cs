@@ -34,7 +34,7 @@ internal static class ReplicaCacheApplier
     internal static Task ApplyAsync(ILogicalNamespacedCache<StoredValue> cache, in ReplicaLogRecord record, CancellationToken cancellationToken)
     {
         var effect = Resolve(in record, out var entry, out var encodedLength);
-        return ExecuteAsync(cache, record, effect, entry, encodedLength, cancellationToken);
+        return ExecuteAsync(cache, record, effect, entry, encodedLength, false, cancellationToken);
     }
 
     /// <summary>Encodes an entry for the mutation payload of an upserting record.</summary>
@@ -47,12 +47,23 @@ internal static class ReplicaCacheApplier
         return JournalEntryPayload.EncodeOwned(in prepared);
     }
 
+    internal static ValueTask SetReplicaEntryAsync(ILogicalNamespacedCache<StoredValue> cache, string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, int? encodedLength, CancellationToken cancellationToken) =>
+        cache is IReplicaCacheMutations<StoredValue> replica
+            ? replica.SetEntryAsync(operationId, cacheName, key, entry, encodedLength, (true, null), cancellationToken)
+            : cache.SetEntryAsync(operationId, cacheName, key, entry, encodedLength, cancellationToken);
+
+    internal static ValueTask<bool> RemoveReplicaAsync(ILogicalNamespacedCache<StoredValue> cache, string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+        cache is IReplicaCacheMutations<StoredValue> replica
+            ? replica.RemoveAsync(operationId, cacheName, key, true, cancellationToken)
+            : cache.RemoveAsync(operationId, cacheName, key, cancellationToken);
+
     /// <summary>Executes the effect of a record that <see cref="Resolve" /> accepted.</summary>
     /// <param name="cache">Local cache pipeline.</param>
     /// <param name="record">The validated record.</param>
     /// <param name="effect">The effect the resolution returned.</param>
     /// <param name="entry">The decoded entry the resolution returned for an upsert.</param>
     /// <param name="encodedLength">The journal-encoded length of <paramref name="entry" /> the resolution returned, or <see langword="null" /> to measure it.</param>
+    /// <param name="replicaApply">Whether the record is already durable in the group log.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the effect is applied.</returns>
     /// <exception cref="ArgumentOutOfRangeException">The effect is not supported.</exception>
@@ -63,6 +74,7 @@ internal static class ReplicaCacheApplier
         ReplicaEffectKind effect,
         NodeCacheEntry<StoredValue>? entry,
         int? encodedLength,
+        bool replicaApply,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(cache);
@@ -73,21 +85,31 @@ internal static class ReplicaCacheApplier
                 var key = Encoding.UTF8.GetString(record.KeyPayload.Span);
                 if (record.EvictedKey is { } victim)
                 {
-                    _ = await cache.RemoveAsync(record.OperationId, record.CacheName, victim, cancellationToken).ConfigureAwait(false);
+                    _ = await RemoveAsync(victim).ConfigureAwait(false);
                     if (string.Equals(key, victim, StringComparison.Ordinal))
                         break;
                 }
 
-                await cache.SetEntryAsync(record.OperationId, record.CacheName, key, entry, encodedLength, cancellationToken).ConfigureAwait(false);
+                if (replicaApply)
+                    await SetReplicaEntryAsync(cache, record.OperationId, record.CacheName, key, entry, encodedLength, cancellationToken).ConfigureAwait(false);
+                else
+                    await cache.SetEntryAsync(record.OperationId, record.CacheName, key, entry, encodedLength, cancellationToken).ConfigureAwait(false);
                 break;
             case ReplicaEffectKind.Delete:
                 // The result reflects the local liveness of the key, not the committed outcome.
-                _ = await cache.RemoveAsync(record.OperationId, record.CacheName, Encoding.UTF8.GetString(record.KeyPayload.Span), cancellationToken).ConfigureAwait(false);
+                _ = await RemoveAsync(Encoding.UTF8.GetString(record.KeyPayload.Span)).ConfigureAwait(false);
                 break;
             case ReplicaEffectKind.Unchanged or ReplicaEffectKind.NoCacheEffect:
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(record), effect, "Unsupported replica effect.");
+        }
+
+        ValueTask<bool> RemoveAsync(string key)
+        {
+            return replicaApply
+                ? RemoveReplicaAsync(cache, record.OperationId, record.CacheName, key, cancellationToken)
+                : cache.RemoveAsync(record.OperationId, record.CacheName, key, cancellationToken);
         }
     }
 

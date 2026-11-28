@@ -34,6 +34,7 @@ internal static class ReplicaGroupCommitterCommits
         /// <param name="request">The write request and its preparation and replay behavior.</param>
         /// <param name="decode">Decodes the committed outcome.</param>
         /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
+        /// <param name="scope">Explicit request log correlation fields.</param>
         /// <returns>The decoded outcome of the committed write.</returns>
         /// <exception cref="ServerOpIdMismatchException">The operation identifier is reused with another request.</exception>
         /// <exception cref="SquirixException">The outcome of the operation is unknown, or the write is refused retryably.</exception>
@@ -47,8 +48,10 @@ internal static class ReplicaGroupCommitterCommits
         internal async Task<TResult> CommitAsync<TResult>(
             ReplicaCommitRequestBase request,
             Func<ReadOnlyMemory<byte>, TResult> decode,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            object? scope = null)
         {
+            request.LogScope = scope;
             try
             {
                 committer.ThrowIfDisposed();
@@ -136,6 +139,7 @@ internal static class ReplicaGroupCommitterCommits
         /// <param name="coordinator">The running coordinator.</param>
         /// <param name="mutation">The prepared mutation; the first entry of <paramref name="run" /> when there is one.</param>
         /// <param name="run">The prepared mutations of a run of several entries, consecutive from the next log index; <see langword="null" /> for a single write.</param>
+        /// <param name="scope">Explicit request log correlation fields.</param>
         /// <returns>The committed outcome payload; of the last entry of a run.</returns>
         /// <exception cref="SquirixException">The outcome is unknown, or the write is refused retryably.</exception>
         /// <exception cref="ServerOpIdMismatchException">The operation identifier is reused with another request.</exception>
@@ -146,7 +150,7 @@ internal static class ReplicaGroupCommitterCommits
         /// is reported for every entry of it. The log is asked whether it holds the first entry only: a run is appended as one request, so a durable
         /// prefix always holds it.
         /// </remarks>
-        internal async ValueTask<ReadOnlyMemory<byte>> CommitWithPreAppendResyncAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation mutation, PreparedReplicaMutation[]? run = null)
+        internal async ValueTask<ReadOnlyMemory<byte>> CommitWithPreAppendResyncAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation mutation, PreparedReplicaMutation[]? run = null, object? scope = null)
         {
             var failedBefore = committer.LocalAppends.Snapshot().Failed;
             try
@@ -161,13 +165,13 @@ internal static class ReplicaGroupCommitterCommits
             {
                 // A durable majority may hold the entry: keep the reservation and sequencing untouched and report the stable contract
                 // (gRPC Unavailable with COMMIT_OUTCOME_UNKNOWN), so callers stop instead of retrying under a new identity.
-                committer.ReportPostAppendFailure(error, failedBefore);
+                committer.ReportPostAppendFailure(error, failedBefore, scope);
                 committer.Metrics?.ReportUnknownCommit(GroupRecordKinds.FromScope(mutation.OperationScope));
                 throw ServerOpContract.CommitOutcomeUnknown();
             }
             catch (Exception error)
             {
-                if (await committer.MapPreAppendFailureAsync(error, mutation, failedBefore).ConfigureAwait(false) is { } mapped)
+                if (await committer.MapPreAppendFailureAsync(error, mutation, failedBefore, true, scope).ConfigureAwait(false) is { } mapped)
                     throw mapped;
 
                 throw;
@@ -211,7 +215,8 @@ internal static class ReplicaGroupCommitterCommits
         /// <summary>Reports an unknown commit outcome and invalidates the started state if the local append was unconfirmed.</summary>
         /// <param name="error">The failure after the append began.</param>
         /// <param name="failedBefore">The number of failed local appends before the commit.</param>
-        internal void ReportPostAppendFailure(Exception error, ulong failedBefore)
+        /// <param name="scope">Explicit request log correlation fields.</param>
+        internal void ReportPostAppendFailure(Exception error, ulong failedBefore, object? scope = null)
         {
             if (error.InnerException is GroupLogAppendUnconfirmedException unconfirmed)
             {
@@ -221,7 +226,7 @@ internal static class ReplicaGroupCommitterCommits
                 committer.ReportLocalAppendFault(unconfirmed, failedBefore);
             }
 
-            ReplicaCommitLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
+            ReplicaCommitLog.ReplicaCommitOutcomeUnknown(committer.Log, error, scope);
         }
 
         /// <summary>Maps a failure of the local appending of a run to the stable client contract; it returns <see langword="null" /> for a failure that has no mapping.</summary>
@@ -229,9 +234,10 @@ internal static class ReplicaGroupCommitterCommits
         /// <param name="mutation">The first entry of the run.</param>
         /// <param name="failedBefore">The number of failed local appends before the commit.</param>
         /// <param name="reportUnknown">Whether an unknown outcome is counted here; a run counts it once per write of it, where each write is decided.</param>
+        /// <param name="scope">Explicit request log correlation fields.</param>
         /// <returns>The client failure, or <see langword="null" /> when <paramref name="error" /> is to be rethrown as it is.</returns>
         /// <remarks>The log may hold the entry, so its outcome is unknown, or the budget ended before the append; the leadership is stale, or there is no leader.</remarks>
-        internal async ValueTask<Exception?> MapPreAppendFailureAsync(Exception error, PreparedReplicaMutation mutation, ulong failedBefore, bool reportUnknown = true)
+        internal async ValueTask<Exception?> MapPreAppendFailureAsync(Exception error, PreparedReplicaMutation mutation, ulong failedBefore, bool reportUnknown = true, object? scope = null)
         {
             // Refused when the identities were reserved, before anything was appended: the pipeline positions stand, so the started
             // state is kept.
@@ -266,7 +272,7 @@ internal static class ReplicaGroupCommitterCommits
                 };
             }
 
-            ReplicaCommitLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
+            ReplicaCommitLog.ReplicaCommitOutcomeUnknown(committer.Log, error, scope);
             if (reportUnknown)
                 committer.Metrics?.ReportUnknownCommit(GroupRecordKinds.FromScope(mutation.OperationScope));
 

@@ -25,7 +25,7 @@ public sealed class ConditionalReplacementDurabilityTests : IsolatedStorageTestB
         var harness = new FusedWriteHarness(Dir, journal);
         var initial = FusedWriteHarness.Set(string.Empty, "initial", ttl: TimeSpan.FromMinutes(1));
         _ = await harness.Adapter.Mutations.SetEntryAsync(initial, cancellationToken);
-        var before = await harness.Cache.GetEntryAsync(initial.CacheName, initial.Key, cancellationToken);
+        var before = await harness.Cache.GetEntryAsync(initial.CacheName, initial.Key, null, cancellationToken);
         journal.Writer.Write.Arm();
         var replacement = FusedWriteHarness.Set(string.Empty, "replacement", ttl: TimeSpan.FromMinutes(2));
         var writing = harness.Adapter.Mutations.ReplaceEntryIfPresentAsync(replacement, cancellationToken).AsTask();
@@ -45,7 +45,7 @@ public sealed class ConditionalReplacementDurabilityTests : IsolatedStorageTestB
             journal.Writer.Write.Release();
         }
 
-        var after = await harness.Cache.GetEntryAsync(initial.CacheName, initial.Key, cancellationToken);
+        var after = await harness.Cache.GetEntryAsync(initial.CacheName, initial.Key, null, cancellationToken);
         _ = await Assert.That(after!.ExpiresUtc).IsEqualTo(before!.ExpiresUtc);
         _ = await Assert.That(after.Value.Memory.Span.SequenceEqual(before.Value.Memory.Span)).IsTrue();
         _ = await Assert.That(harness.ReadFrames(cancellationToken).Count).IsEqualTo(1);
@@ -75,7 +75,7 @@ public sealed class ConditionalReplacementDurabilityTests : IsolatedStorageTestB
 
             _ = await Assert.That((await replacing).Updated).IsTrue();
             _ = await competing;
-            var stored = await harness.Cache.GetEntryAsync(initial.CacheName, initial.Key, cancellationToken);
+            var stored = await harness.Cache.GetEntryAsync(initial.CacheName, initial.Key, null, cancellationToken);
             _ = await Assert.That(stored!.ExpiresUtc).IsEqualTo(harness.Clock.GetUtcNow().UtcDateTime.AddMinutes(3));
             _ = await Assert.That(stored.Value.Memory.Span.SequenceEqual(native.Entry!.Value.Value!.JsonUtf8.Span)).IsTrue();
             _ = await Assert.That(harness.ReadFrames(cancellationToken).Count).IsEqualTo(3);

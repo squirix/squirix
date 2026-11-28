@@ -52,7 +52,7 @@ public class MemoryAdmissionSetBenchmarks
         var admission = ThrowHelper.Required(_admission, "Benchmark decorator was not initialized.");
         var entry = new NodeCacheEntry<StoredValue>(ValueText);
         for (var i = 0; i < OperationsPerInvoke; i++)
-            await admission.SetEntryAsync("op", CacheName, Key, entry, CancellationToken.None).ConfigureAwait(false);
+            await admission.SetEntryAsync("op", CacheName, Key, entry, null, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Inner cache that holds one entry and completes every call at once.</summary>

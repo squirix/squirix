@@ -8,9 +8,12 @@ internal interface IServerLogger
     bool IsScopeEnabled => true;
 
     IDisposable? BeginScope<TState>(TState state)
-        where TState : notnull;
+        where TState : notnull => null;
 
     bool IsEnabled(ServerLogLevel logLevel);
+
+    void LogWithScope<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter, object? scope) =>
+        Log(logLevel, eventId, state, exception, formatter);
 
     void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter);
 }

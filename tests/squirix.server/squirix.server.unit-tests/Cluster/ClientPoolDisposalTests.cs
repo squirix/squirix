@@ -810,7 +810,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             return _disposeError != null ? ValueTask.FromException(_disposeError) : ValueTask.CompletedTask;
         }
 
-        public ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken) =>
+        public ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null) =>
             throw new NotSupportedException("RecordingPolicy does not execute calls.");
     }
 
@@ -825,7 +825,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 
         public ValueTask DisposeAsync() => new(_drained.Task);
 
-        public ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken) =>
+        public ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null) =>
             throw new NotSupportedException("StuckPolicy does not execute calls.");
 
         internal void Release() => _ = _drained.TrySetResult();
@@ -847,7 +847,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 
         public ValueTask DisposeAsync() => throw _failure;
 
-        public ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken) =>
+        public ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null) =>
             throw new NotSupportedException("ThrowingPolicy does not execute calls.");
     }
 

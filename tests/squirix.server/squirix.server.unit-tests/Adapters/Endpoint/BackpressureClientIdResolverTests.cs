@@ -1,10 +1,11 @@
+using System.Diagnostics.Metrics;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Composition;
 using Squirix.Server.Node.Backpressure;
-using Squirix.Server.Runtime.Invocation;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -23,28 +24,28 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     [Test]
     public async Task RawSubUsedWhenNameIdentifierBlank()
     {
-        var resolver = new BinaryClientIdResolver(new BinaryRequestAccessor { Current = CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, "   "), new Claim("sub", "oidc-subject"))) });
+        var context = CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, "   "), new Claim("sub", "oidc-subject")));
 
-        _ = await Assert.That(resolver.Resolve()).IsEqualTo("jwt:oidc-subject");
+        _ = await Assert.That(BinaryClientIdResolver.ResolveRequest(context)).IsEqualTo("jwt:oidc-subject");
     }
 
     /// <summary>Raw JWT subclaim is used when NameIdentifier is absent.</summary>
     [Test]
     public async Task RawSubUsedWhenNameIdentifierMissing()
     {
-        var resolver = new BinaryClientIdResolver(new BinaryRequestAccessor { Current = CreateContext("conn-1", Authenticated(new Claim("sub", "oidc-subject"))) });
+        var context = CreateContext("conn-1", Authenticated(new Claim("sub", "oidc-subject")));
 
-        _ = await Assert.That(resolver.Resolve()).IsEqualTo("jwt:oidc-subject");
+        _ = await Assert.That(BinaryClientIdResolver.ResolveRequest(context)).IsEqualTo("jwt:oidc-subject");
     }
 
     /// <summary>Resolved client ids are cached on the RequestContext for the request lifetime.</summary>
     [Test]
     public async Task ResolveCachesClientIdOnRequestContext()
     {
-        var resolver = new BinaryClientIdResolver(new BinaryRequestAccessor { Current = CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, "tenant-a"))) });
+        var context = CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, "tenant-a")));
 
-        var first = resolver.Resolve();
-        var second = resolver.Resolve();
+        var first = BinaryClientIdResolver.ResolveRequest(context);
+        var second = BinaryClientIdResolver.ResolveRequest(context);
 
         _ = await Assert.That(first).IsEqualTo("jwt:tenant-a");
         _ = await Assert.That(second).IsSameReferenceAs(first);
@@ -58,9 +59,9 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     [Arguments("соединение:東京", "conn:соединение:東京")]
     public async Task ResolveUsesConnectionIdWhenAnonymous(string connectionId, string expected)
     {
-        var resolver = new BinaryClientIdResolver(new BinaryRequestAccessor { Current = CreateContext(connectionId) });
+        var context = CreateContext(connectionId);
 
-        _ = await Assert.That(resolver.Resolve()).IsEqualTo(expected);
+        _ = await Assert.That(BinaryClientIdResolver.ResolveRequest(context)).IsEqualTo(expected);
     }
 
     /// <summary>Authenticated JWT subject becomes a principal-scoped client id.</summary>
@@ -71,16 +72,16 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     [Arguments("арендатор:東京", "jwt:арендатор:東京")]
     public async Task ResolveUsesJwtSubjectWhenAuthenticated(string subject, string expected)
     {
-        var resolver = new BinaryClientIdResolver(new BinaryRequestAccessor { Current = CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, subject))) });
+        var context = CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, subject)));
 
-        _ = await Assert.That(resolver.Resolve()).IsEqualTo(expected);
+        _ = await Assert.That(BinaryClientIdResolver.ResolveRequest(context)).IsEqualTo(expected);
     }
 
     /// <summary>In-process calls without RequestContext share the runtime bucket.</summary>
     [Test]
     public async Task MissingRequestUsesRuntimeId()
     {
-        var resolver = new BinaryClientIdResolver(new BinaryRequestAccessor { Current = null });
+        var resolver = new BinaryClientIdResolver();
         _ = await Assert.That(resolver.Resolve()).IsEqualTo(ClientIds.Runtime);
     }
 
@@ -88,38 +89,37 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     [Test]
     public async Task ResolverUsesConnectionWithoutSubject()
     {
-        var resolver = new BinaryClientIdResolver(new BinaryRequestAccessor { Current = CreateContext("conn-no-sub", AuthenticatedWithoutClaims()) });
+        var context = CreateContext("conn-no-sub", AuthenticatedWithoutClaims());
 
-        _ = await Assert.That(resolver.Resolve()).IsEqualTo("conn:conn-no-sub");
+        _ = await Assert.That(BinaryClientIdResolver.ResolveRequest(context)).IsEqualTo("conn:conn-no-sub");
     }
 
     /// <summary>An owner-routed call from another node resolves to the internal id, not to its forwarding connection.</summary>
     [Test]
     public async Task ResolverMarksInternalOwnerCalls()
     {
-        var resolver = new BinaryClientIdResolver(new BinaryRequestAccessor { Current = CreateContext("forwarder-conn") });
+        var context = CreateContext("forwarder-conn");
+        context.Forwarded = true;
+        using var meter = new Meter("Squirix");
+        using var gate = new AdmissionGate(new AdmissionOptions(), new BackpressureMetrics(meter), System.TimeProvider.System);
+        var admission = new CacheRequestAdmission(gate, new BinaryClientIdResolver());
 
-        using var scope = RemoteInvocationContext.EnterRemoteInvocation(true);
-
-        _ = await Assert.That(resolver.Resolve()).IsEqualTo(ClientIds.InternalOwner);
+        _ = await Assert.That(admission.ResolveClientId(context)).IsEqualTo(ClientIds.InternalOwner);
     }
 
     /// <summary>Verifies the shared-mode resolver returns the internal id only inside an internal owner invocation.</summary>
     [Test]
     public async Task SharedResolverMarksInternalOwnerCalls()
     {
-        var outside = SharedClientIdResolver.Instance.Resolve();
-        string inside;
-        using (RemoteInvocationContext.EnterRemoteInvocation(true))
-            inside = SharedClientIdResolver.Instance.Resolve();
+        using var meter = new Meter("Squirix");
+        using var gate = new AdmissionGate(new AdmissionOptions(), new BackpressureMetrics(meter), System.TimeProvider.System);
+        var admission = new CacheRequestAdmission(gate, SharedClientIdResolver.Instance);
+        var caller = CreateContext("caller");
+        var owner = CreateContext("owner");
+        owner.Forwarded = true;
 
-        string external;
-        using (RemoteInvocationContext.EnterRemoteInvocation())
-            external = SharedClientIdResolver.Instance.Resolve();
-
-        _ = await Assert.That(outside).IsEqualTo(ClientIds.Runtime);
-        _ = await Assert.That(inside).IsEqualTo(ClientIds.InternalOwner);
-        _ = await Assert.That(external).IsEqualTo(ClientIds.Runtime);
+        _ = await Assert.That(admission.ResolveClientId(caller)).IsEqualTo(ClientIds.Runtime);
+        _ = await Assert.That(admission.ResolveClientId(owner)).IsEqualTo(ClientIds.InternalOwner);
     }
 
     /// <summary>A JWT subject matching the reserved owner id remains an external client.</summary>
@@ -127,9 +127,8 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     public async Task ResolverPrefixesInternalSubject()
     {
         var context = CreateContext("conn-1", Authenticated(new Claim("sub", "internal")));
-        var resolver = new BinaryClientIdResolver(new BinaryRequestAccessor { Current = context });
 
-        _ = await Assert.That(resolver.Resolve()).IsEqualTo("jwt:internal");
+        _ = await Assert.That(BinaryClientIdResolver.ResolveRequest(context)).IsEqualTo("jwt:internal");
     }
 
     private static ClaimsPrincipal Authenticated(params Claim[] claims) => new(new ClaimsIdentity(claims, "Bearer"));

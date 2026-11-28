@@ -43,7 +43,7 @@ public sealed class AdmissionSetPreReadTests : DisposableServerUnitTestBase
     {
         var harness = new Harness(this, 0, null, null);
 
-        await harness.Cache.SetEntryAsync(OperationId, CacheName, Key, Large, cancellationToken);
+        await harness.Cache.SetEntryAsync(OperationId, CacheName, Key, Large, null, cancellationToken);
 
         _ = await Assert.That(harness.Reads.Value).IsEqualTo(0);
         _ = await Assert.That(harness.Sets.Value).IsEqualTo(1);
@@ -56,7 +56,7 @@ public sealed class AdmissionSetPreReadTests : DisposableServerUnitTestBase
     {
         var harness = new Harness(this, 0, static (_, _) => false, null);
 
-        await harness.Cache.SetEntryAsync(OperationId, CacheName, Key, Large, cancellationToken);
+        await harness.Cache.SetEntryAsync(OperationId, CacheName, Key, Large, null, cancellationToken);
 
         _ = await Assert.That(harness.Reads.Value).IsEqualTo(0);
         _ = await Assert.That(harness.Sets.Value).IsEqualTo(1);
@@ -69,7 +69,7 @@ public sealed class AdmissionSetPreReadTests : DisposableServerUnitTestBase
     {
         var harness = new Harness(this, NearLimitBytes, null, null);
 
-        await harness.Cache.SetEntryAsync(OperationId, CacheName, Key, SlightlyLarger, cancellationToken);
+        await harness.Cache.SetEntryAsync(OperationId, CacheName, Key, SlightlyLarger, null, cancellationToken);
 
         _ = await Assert.That(harness.Reads.Value).IsEqualTo(1);
         _ = await Assert.That(harness.Sets.Value).IsEqualTo(1);
@@ -83,7 +83,7 @@ public sealed class AdmissionSetPreReadTests : DisposableServerUnitTestBase
         var harness = new Harness(this, NearLimitBytes, null, null);
         var larger = new NodeCacheEntry<string> { Value = new string('x', 3000), Version = 2 };
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(harness.Cache.SetEntryAsync(OperationId, CacheName, Key, larger, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(harness.Cache.SetEntryAsync(OperationId, CacheName, Key, larger, null, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(harness.Reads.Value).IsEqualTo(1);
         _ = await Assert.That(harness.Sets.Value).IsEqualTo(0);
@@ -96,7 +96,7 @@ public sealed class AdmissionSetPreReadTests : DisposableServerUnitTestBase
     {
         var harness = new Harness(this, CriticalBytes, null, null);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(harness.Cache.SetEntryAsync(OperationId, CacheName, Key, SlightlyLarger, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(harness.Cache.SetEntryAsync(OperationId, CacheName, Key, SlightlyLarger, null, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(harness.Reads.Value).IsEqualTo(1);
         _ = await Assert.That(harness.Sets.Value).IsEqualTo(0);
@@ -109,7 +109,7 @@ public sealed class AdmissionSetPreReadTests : DisposableServerUnitTestBase
     {
         var harness = new Harness(this, 0, static (_, _) => true, null);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(harness.Cache.SetEntryAsync(OperationId, CacheName, Key, SlightlyLarger, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(harness.Cache.SetEntryAsync(OperationId, CacheName, Key, SlightlyLarger, null, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(harness.Reads.Value).IsEqualTo(1);
         _ = await Assert.That(harness.Sets.Value).IsEqualTo(0);
@@ -123,7 +123,7 @@ public sealed class AdmissionSetPreReadTests : DisposableServerUnitTestBase
         var harness = new Harness(this, 0, static (_, _) => true, null);
         var small = new NodeCacheEntry<string> { Value = "s", Version = 2 };
 
-        await harness.Cache.SetEntryAsync(OperationId, CacheName, Key, small, cancellationToken);
+        await harness.Cache.SetEntryAsync(OperationId, CacheName, Key, small, null, cancellationToken);
 
         _ = await Assert.That(harness.Reads.Value).IsEqualTo(1);
         _ = await Assert.That(harness.Sets.Value).IsEqualTo(1);
@@ -136,7 +136,7 @@ public sealed class AdmissionSetPreReadTests : DisposableServerUnitTestBase
     {
         var harness = new Harness(this, CriticalBytes, null, static (_, _, operationId) => string.Equals(operationId, OperationId, StringComparison.Ordinal));
 
-        await harness.Cache.SetEntryAsync(OperationId, CacheName, Key, SlightlyLarger, cancellationToken);
+        await harness.Cache.SetEntryAsync(OperationId, CacheName, Key, SlightlyLarger, null, cancellationToken);
 
         _ = await Assert.That(harness.Reads.Value).IsEqualTo(1);
         _ = await Assert.That(harness.Sets.Value).IsEqualTo(1);

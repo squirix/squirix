@@ -19,10 +19,19 @@ internal sealed class CacheRequestAdmission
         _clients = clients;
     }
 
-    /// <summary>The async dispatch restores its caller's execution context when it returns.</summary>
-    /// <returns>A grant revoked when the dispatched operation completes.</returns>
-    internal InboundAdmissionScope.Scope EnterDispatchScope() => InboundAdmissionScope.Enter(_gate, false);
+    internal void Grant(BinaryRequestContext call) => call.SetAdmissionGate(_gate);
 
-    internal ValueTask<(Decision Decision, Lease Lease)> AcquireAsync(string operationName, CancellationToken cancellationToken) =>
-        _gate.AcquireAsync(CacheOperationNames.CacheTransport, operationName, _clients.Resolve(), cancellationToken);
+    internal ValueTask<(Decision Decision, Lease Lease)> AcquireAsync(string operationName, BinaryRequestContext call, CancellationToken cancellationToken)
+    {
+        var clientId = ResolveClientId(call);
+        call.AdmissionClientId = clientId;
+        return _gate.AcquireAsync(CacheOperationNames.CacheTransport, operationName, clientId, cancellationToken);
+    }
+
+    internal string ResolveClientId(BinaryRequestContext call) => (call.Forwarded, _clients) switch
+    {
+        (true, _) => ClientIds.InternalOwner,
+        (_, BinaryClientIdResolver) => BinaryClientIdResolver.ResolveRequest(call),
+        _ => _clients.Resolve(),
+    };
 }

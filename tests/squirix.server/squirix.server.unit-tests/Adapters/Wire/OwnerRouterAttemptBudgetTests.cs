@@ -63,9 +63,9 @@ public sealed class OwnerRouterAttemptBudgetTests
         var second = new FakeLeaderTable(SecondMember, default) { OnWait = Spend(clock), LedWithoutAuthority = internalTarget, LedTerm = 3 };
         chain.Add(FirstMember, CreateRouter(FirstMember, first, internalTarget, clock));
         chain.Add(SecondMember, CreateRouter(SecondMember, second, internalTarget, clock));
-        using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
+        var deadline = ServerDeadlineBudget.Start(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(chain.RunAsync(CreateRouter(Entry, entry, false, clock)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(chain.RunAsync(CreateRouter(Entry, entry, false, clock), in deadline), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((failure.StatusCode, failure.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
         _ = await Assert.That(string.Join(',', chain.Forwards)).IsEqualTo(FirstMember);
@@ -84,9 +84,9 @@ public sealed class OwnerRouterAttemptBudgetTests
         var entry = new FakeLeaderTable(Entry, default) { OnWait = Spend(clock, EntryWait), AfterWait = new LeaderRoute(FirstMember, 2) };
         var first = new FakeLeaderTable(FirstMember, default) { OnWait = Spend(clock), LedWithoutAuthority = true, LedTerm = 3 };
         chain.Add(FirstMember, CreateRouter(FirstMember, first, true, clock));
-        using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
+        var deadline = ServerDeadlineBudget.Start(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(chain.RunAsync(CreateRouter(Entry, entry, false, clock)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(chain.RunAsync(CreateRouter(Entry, entry, false, clock), in deadline), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Message).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
         _ = await Assert.That(Describe(first.AuthorityWaits)).IsEqualTo(Times(LeaderWait - EntryWait));
@@ -100,9 +100,9 @@ public sealed class OwnerRouterAttemptBudgetTests
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var table = new FakeLeaderTable(Entry, default) { OnWait = Spend(clock, EntryWait), AfterWait = new LeaderRoute(FirstMember, 2) };
         var attempts = new OwnerRouterRerouteTests.Attempts(new ServerCallException(FrameStatus.FailedPrecondition, RefusalCodes.StaleTerm));
-        using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
+        var deadline = ServerDeadlineBudget.Start(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock), deadline), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Message).IsEqualTo(ServerOpContract.LeaderChangedDetail);
         _ = await Assert.That(Describe(table.Waits)).IsEqualTo(Times(LeaderWait, LeaderWait - EntryWait));
@@ -116,9 +116,9 @@ public sealed class OwnerRouterAttemptBudgetTests
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var table = new FakeLeaderTable(Entry, default) { OnWait = Spend(clock), AfterWait = new LeaderRoute(FirstMember, 2) };
         var attempts = new OwnerRouterRerouteTests.Attempts(new ServerCallException(FrameStatus.FailedPrecondition, RefusalCodes.StaleTerm));
-        using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
+        var deadline = ServerDeadlineBudget.Start(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock), deadline), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Message).IsEqualTo(ServerOpContract.LeaderChangedDetail);
         _ = await Assert.That(Describe(table.Waits)).IsEqualTo(Times(LeaderWait));
@@ -134,9 +134,9 @@ public sealed class OwnerRouterAttemptBudgetTests
         var table = new FakeLeaderTable(Entry, default) { Served = false };
         var refusal = ServerOpContract.NoLeaderAuthority();
         var attempts = new OwnerRouterRerouteTests.Attempts(refusal) { OnAttempt = () => clock.Advance(LeaderWait) };
-        using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
+        var deadline = ServerDeadlineBudget.Start(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock), deadline), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(refusal);
         _ = await Assert.That(attempts.Targets.Count).IsEqualTo(1);
@@ -149,9 +149,9 @@ public sealed class OwnerRouterAttemptBudgetTests
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var table = new FakeLeaderTable(Entry, default) { Served = false };
         var attempts = new OwnerRouterRerouteTests.Attempts(ServerOpContract.NoLeaderAuthority()) { OnAttempt = () => clock.Advance(EarlyRefusal) };
-        using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
+        var deadline = ServerDeadlineBudget.Start(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
 
-        _ = await attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock));
+        _ = await attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock), deadline);
 
         _ = await Assert.That(attempts.Targets.Count).IsEqualTo(2);
         _ = await Assert.That(attempts.Remaining[1]).IsEqualTo(RpcAttemptTimeout.PerAttempt - EarlyRefusal);
@@ -169,9 +169,9 @@ public sealed class OwnerRouterAttemptBudgetTests
         var table = new FakeLeaderTable(Entry, new LeaderRoute(FirstMember, 2));
         var attempts = new OwnerRouterRerouteTests.Attempts();
         var caller = TimeSpan.FromMilliseconds(deadlineMilliseconds);
-        using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + caller, clock);
+        var deadline = ServerDeadlineBudget.Start(clock.GetUtcNow().UtcDateTime + caller, clock);
 
-        _ = await attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock));
+        _ = await attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock), deadline);
 
         _ = await Assert.That(Describe(attempts.Remaining)).IsEqualTo(Times(TimeSpan.FromMilliseconds(forwardMilliseconds)));
     }
@@ -183,9 +183,9 @@ public sealed class OwnerRouterAttemptBudgetTests
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var table = new FakeLeaderTable(Entry, new LeaderRoute(FirstMember, 2)) { AfterRefute = new LeaderRoute(Entry, 3) };
         var attempts = new OwnerRouterRerouteTests.Attempts(new ServerCallException(FrameStatus.FailedPrecondition, RefusalCodes.StaleTerm));
-        using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
+        var deadline = ServerDeadlineBudget.Start(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
 
-        _ = await attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock));
+        _ = await attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock), deadline);
 
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo($"{FirstMember},{OwnerRouterRerouteTests.Attempts.Local}");
         _ = await Assert.That(Describe(attempts.Remaining)).IsEqualTo(Times(RpcAttemptTimeout.PerAttempt, ClientOperationDeadline));
@@ -198,9 +198,9 @@ public sealed class OwnerRouterAttemptBudgetTests
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var table = new FakeLeaderTable(Entry, new LeaderRoute(Entry, 2));
         var attempts = new OwnerRouterRerouteTests.Attempts();
-        using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
+        var deadline = ServerDeadlineBudget.Start(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
 
-        _ = await attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock));
+        _ = await attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock), deadline);
 
         _ = await Assert.That(Describe(attempts.Remaining)).IsEqualTo(Times(ClientOperationDeadline));
     }
@@ -214,9 +214,9 @@ public sealed class OwnerRouterAttemptBudgetTests
         var table = new FakeLeaderTable(Entry, default) { Served = false };
         var expired = new ServerCallException(FrameStatus.DeadlineExceeded, "Deadline Exceeded");
         var attempts = new OwnerRouterRerouteTests.Attempts(expired) { OnAttempt = () => clock.Advance(LateForwardSpent) };
-        using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
+        var deadline = ServerDeadlineBudget.Start(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock), deadline), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(expired);
         _ = await Assert.That(attempts.Targets.Count).IsEqualTo(1);
@@ -244,9 +244,9 @@ public sealed class OwnerRouterAttemptBudgetTests
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var table = new FakeLeaderTable(Entry, default);
         var attempts = new OwnerRouterRerouteTests.Attempts();
-        using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + OverriddenDeadline, clock);
+        var deadline = ServerDeadlineBudget.Start(clock.GetUtcNow().UtcDateTime + OverriddenDeadline, clock);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(attempts.RunAsync(CreateRouter(Entry, table, false, clock, OverriddenLeaderWait)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(attempts.RunAsync(CreateRouter(Entry, table, false, clock, OverriddenLeaderWait), deadline), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Message).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
         _ = await Assert.That(Describe(table.Waits)).IsEqualTo(Times(OverriddenLeaderWait));
@@ -303,13 +303,14 @@ public sealed class OwnerRouterAttemptBudgetTests
 
         internal void Add(string node, OwnerRouter router) => _routers.Add((node, router));
 
-        internal Task<string> RunAsync(OwnerRouter router) => router.ExecuteAsync(
+        internal Task<string> RunAsync(OwnerRouter router, in ServerDeadlineBudget deadline) => router.ExecuteAsync(
             "cache",
             "key",
             this,
-            static (chain, target, cancellationToken) => chain.ForwardAsync(target, cancellationToken),
+            static (chain, target, budget, cancellationToken) => chain.ForwardAsync(target, budget, cancellationToken),
             static (_, _) => ValueTask.FromResult("served"),
-            CancellationToken.None).AsTask();
+            CancellationToken.None,
+            (deadline, null)).AsTask();
 
         private OwnerRouter RouterOf(string node)
         {
@@ -322,18 +323,18 @@ public sealed class OwnerRouterAttemptBudgetTests
             throw new InvalidOperationException($"No router for '{node}'.");
         }
 
-        private async Task<string> ForwardAsync(string target, CancellationToken cancellationToken)
+        private Task<string> ForwardAsync(string target, ServerDeadlineBudget? budget, CancellationToken cancellationToken)
         {
             Forwards.Add(target);
-            var carried = _clock.GetUtcNow().UtcDateTime + (ServerRpcDeadlineContext.CurrentBudget?.Remaining ?? TimeSpan.Zero);
-            using (ServerRpcDeadlineContext.Push(carried, _clock))
-                return await RouterOf(target).ExecuteAsync(
-                    "cache",
-                    "key",
-                    this,
-                    static (_, _, _) => Task.FromResult("forwarded again"),
-                    static (_, _) => ValueTask.FromResult("served"),
-                    cancellationToken).ConfigureAwait(false);
+            var carried = new ServerDeadlineBudget(_clock, budget?.Remaining ?? TimeSpan.Zero, _clock.GetTimestamp());
+            return RouterOf(target).ExecuteAsync(
+                "cache",
+                "key",
+                this,
+                static (_, _, _, _) => Task.FromResult("forwarded again"),
+                static (_, _) => ValueTask.FromResult("served"),
+                cancellationToken,
+                (carried, null)).AsTask();
         }
     }
 }

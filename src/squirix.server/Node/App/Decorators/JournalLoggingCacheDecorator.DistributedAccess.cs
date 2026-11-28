@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.App.Decorators;
@@ -29,8 +30,9 @@ internal sealed partial class JournalLoggingCacheDecorator<T>
         /// <param name="key">Target key.</param>
         /// <param name="refresh">Whether to omit the payload from the result.</param>
         /// <param name="cancellationToken">Cancellation token before the journal append.</param>
+        /// <param name="scope">Explicit request log correlation context.</param>
         /// <returns>The original payload when requested and present.</returns>
-        internal async ValueTask<ReadOnlyMemory<byte>?> AccessDistributedAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken)
+        internal async ValueTask<ReadOnlyMemory<byte>?> AccessDistributedAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken, object? scope = null)
         {
             using var upsert = new DecidedUpsert();
             var state = new DistributedAccessState(_owner, operationId, cacheName, key, refresh, upsert);
@@ -41,7 +43,9 @@ internal sealed partial class JournalLoggingCacheDecorator<T>
                     state,
                     static (s, ownership, ct) => s.Self._journal.AppendPutAsync(ownership, new CacheKey(s.CacheName, s.Key), s.Upsert.Payload, ct),
                     static (s, ct) => ApplyDistributedAccessAsync(s, ct)),
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                false,
+                scope).ConfigureAwait(false);
             return result.Item1;
         }
 
@@ -56,7 +60,8 @@ internal sealed partial class JournalLoggingCacheDecorator<T>
                 return DurableMutationCondition<ValueTuple<ReadOnlyMemory<byte>?>>.Skip(result);
 
             var entry = new NodeCacheEntry<T>(current!.Value, current.Version, deadline, tags: current.Tags);
-            state.Upsert.Set(entry, EncodeWhole(entry));
+            var prepared = JournalEntryPayload.PrepareEncode(entry);
+            state.Upsert.Set(entry, JournalEntryPayload.Encode(in prepared));
             return DurableMutationCondition<ValueTuple<ReadOnlyMemory<byte>?>>.Apply();
         }
 

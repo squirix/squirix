@@ -29,12 +29,12 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     /// <summary>Ensures the ambient request deadline caps the overall retry budget.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task AmbientDeadlineCapsOverallRetryBudget(CancellationToken cancellationToken)
+    public async Task RequestDeadlineCapsOverallRetryBudget(CancellationToken cancellationToken)
     {
         var timeouts = new CallPolicyTimeouts(TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(5));
         var clock = new FakeTimeProvider();
         await using var policy = CreatePolicy(clock, timeouts, 5, peer: "peer-a");
-        using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime.AddMilliseconds(50), clock);
+        var deadline = ServerDeadlineBudget.Start(clock.GetUtcNow().UtcDateTime.AddMilliseconds(50), clock);
 
         var pending = policy.ExecuteAsync(
             clock,
@@ -43,7 +43,8 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
                 await Task.Delay(TimeSpan.FromSeconds(1), c, token);
                 return 1;
             },
-            cancellationToken);
+            cancellationToken,
+            deadline);
         clock.Advance(TimeSpan.FromMilliseconds(49));
         var stillPending = !pending.IsCompleted;
         clock.Advance(TimeSpan.FromMilliseconds(1));
@@ -459,8 +460,7 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
             2,
             peer: "peer-b",
             meter: meter);
-        using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime.AddMilliseconds(35), clock);
-        _ = await Assert.That(ServerRpcDeadlineContext.CurrentBudget?.Remaining).IsNotNull();
+        var deadline = ServerDeadlineBudget.Start(clock.GetUtcNow().UtcDateTime.AddMilliseconds(35), clock);
 
         var pending = policy.ExecuteAsync(
             clock,
@@ -469,7 +469,8 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
                 await Task.Delay(TimeSpan.FromSeconds(1), c, token);
                 return 1;
             },
-            cancellationToken);
+            cancellationToken,
+            deadline);
         clock.Advance(TimeSpan.FromMilliseconds(34));
         var stillPending = !pending.IsCompleted;
         clock.Advance(TimeSpan.FromMilliseconds(1));

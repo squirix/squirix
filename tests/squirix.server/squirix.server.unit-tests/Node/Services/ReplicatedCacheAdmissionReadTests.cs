@@ -134,7 +134,7 @@ public sealed class ReplicatedCacheAdmissionReadTests : ServerUnitTestBase
         using var meter = new Meter("test");
         var admission = CreateAdmission(new ReplicatedCache(cache, committers, true), meter);
 
-        var updating = admission.UpdateAsync(NewOperationId(), CacheName, "b", StoredValue.FromText("c"), cancellationToken).AsTask();
+        var updating = admission.UpdateAsync(NewOperationId(), CacheName, "b", StoredValue.FromText("c"), null, cancellationToken).AsTask();
         var waited = !updating.IsCompleted;
         time.Advance(ElectionTiming.ElectionTimeout);
         var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(updating, HangGuard, TimeProvider.System, cancellationToken);
@@ -151,9 +151,9 @@ public sealed class ReplicatedCacheAdmissionReadTests : ServerUnitTestBase
         CancellationToken cancellationToken)
     {
         if (getOrAdd)
-            return await admission.AddOrGetAsync(operationId, CacheName, "b", Entry("c"), cancellationToken);
+            return await admission.AddOrGetAsync(operationId, CacheName, "b", Entry("c"), null, cancellationToken);
 
-        var added = await admission.TryAddEntryAsync(operationId, CacheName, "b", Entry("c"), cancellationToken);
+        var added = await admission.TryAddEntryAsync(operationId, CacheName, "b", Entry("c"), null, cancellationToken);
         return new NodeCacheAddOrGetResult<StoredValue>(added, default);
     }
 }

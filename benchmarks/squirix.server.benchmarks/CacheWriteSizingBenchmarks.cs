@@ -49,7 +49,7 @@ public class CacheWriteSizingBenchmarks
     /// <returns>The completion of the write.</returns>
     /// <exception cref="InvalidOperationException">The benchmark has not been initialized.</exception>
     [Benchmark]
-    public ValueTask SetAsync() => ThrowHelper.Required(_cache, "Benchmark was not initialized.").SetEntryAsync("op", "cache", "key", new NodeCacheEntry<StoredValue>(_value), CancellationToken.None);
+    public ValueTask SetAsync() => ThrowHelper.Required(_cache, "Benchmark was not initialized.").SetEntryAsync("op", "cache", "key", new NodeCacheEntry<StoredValue>(_value), null, CancellationToken.None);
 
     /// <summary>Releases the instruments.</summary>
     [GlobalCleanup]

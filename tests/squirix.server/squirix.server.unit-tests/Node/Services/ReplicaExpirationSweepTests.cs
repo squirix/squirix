@@ -288,13 +288,13 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
                 registry,
                 static r => (cacheName, _, operationId) => r.HasRecordedOutcome("n1", cacheName, operationId)));
         foreach (var key in new[] { "a", "b", "c" })
-            await admission.SetEntryAsync(NewOperationId(), CacheName, key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
+            await admission.SetEntryAsync(NewOperationId(), CacheName, key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), null, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(admission.SetEntryAsync(NewOperationId(), CacheName, "d", new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(admission.SetEntryAsync(NewOperationId(), CacheName, "d", new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), null, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         clock.Advance(Ttl);
         using var sweep = new ReplicaExpirationSweepService(LeadOwn(committer), physical.ExpiredKeys, LocatorOf("n1"), new EventRecordingLogger()) { MaxPerPass = 10 };
         _ = await sweep.SweepPassAsync(cancellationToken);
-        await admission.SetEntryAsync(NewOperationId(), CacheName, "d", new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
+        await admission.SetEntryAsync(NewOperationId(), CacheName, "d", new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), null, cancellationToken);
 
         ILocalCacheStats stats = physical;
         _ = await Assert.That(stats.EstimatedBytes).IsEqualTo(storedBytes);

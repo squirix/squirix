@@ -6,7 +6,6 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Logging;
-using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
@@ -50,7 +49,9 @@ internal sealed class DurableMutationExecutor
         CacheKey conflictKey,
         Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
         DurableMutationPipeline<TState, TResult> pipeline,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool replicaApply = false,
+        object? scope = null)
     {
         ArgumentNullException.ThrowIfNull(precondition);
         ArgumentNullException.ThrowIfNull(pipeline.AppendJournal);
@@ -58,16 +59,8 @@ internal sealed class DurableMutationExecutor
 
         // A bounded durable put can write two keys. Keep its capacity decision stable until apply by serializing writes in its namespace.
         // The pre-apply durability wait still runs outside the global mutation gate and unrelated namespaces can share a flush.
-        return ExecuteKeyedAsync(MutationLockKey(conflictKey), precondition, pipeline, cancellationToken);
+        return ExecuteKeyedAsync(MutationLockKey(conflictKey), precondition, pipeline, replicaApply, scope, cancellationToken);
     }
-
-    /// <summary>
-    /// Determines whether the wait for the cache journal flush before the memory apply is skipped: only for a replicated apply, whose durable
-    /// source is the replica group log and not the cache journal. The leader applier marks every such apply, with or without an RPC scope,
-    /// so a re-applied committed entry never waits for its own flush; any other write still does.
-    /// </summary>
-    /// <returns><see langword="true" /> when the cache journal is not the durable source of the running write.</returns>
-    private static bool SkipsCacheJournalDurabilityWait() => ReplicaApplyContext.IsActive;
 
     private CacheKey MutationLockKey(CacheKey key) => _serializeNamespace ? key with { Key = string.Empty } : key;
 
@@ -76,6 +69,8 @@ internal sealed class DurableMutationExecutor
         CacheKey conflictKey,
         Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
         DurableMutationPipeline<TState, TResult> pipeline,
+        bool replicaApply,
+        object? scope,
         CancellationToken cancellationToken)
     {
         await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
@@ -85,7 +80,7 @@ internal sealed class DurableMutationExecutor
         using var keyLease = await _keyLocks.LockAsync(conflictKey, cancellationToken).ConfigureAwait(false);
         while (true)
         {
-            var state = new KeyedExecutionState();
+            var state = new KeyedExecutionState { LogScope = scope };
             var plan = await PrepareUnderBarrierAsync(state, precondition, pipeline, cancellationToken).ConfigureAwait(false);
 
             if (plan.IsCutPending)
@@ -105,7 +100,8 @@ internal sealed class DurableMutationExecutor
             {
                 // The frame is on the ring: from here only a journal failure or shutdown may stop the apply, never the caller. Memory is applied
                 // only once the frame is covered by a completed flush, so a reader never sees a value a crash or a flush failure could lose.
-                if (!SkipsCacheJournalDurabilityWait())
+                // Replicated applies are already durable in the group log.
+                if (!replicaApply)
                     await _journal.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
 
                 // The apply slot stays held across the wait above, so a snapshot cut waits for this write and covers it.
@@ -124,7 +120,7 @@ internal sealed class DurableMutationExecutor
             catch (Exception ex) when (!state.MemoryApplyStarted)
             {
                 // Shutdown or the failure latch ended the durability wait or the gate re-acquire: the outcome is unknown, not failed.
-                throw ReportCommitOutcomeUnknown(ex);
+                throw ReportCommitOutcomeUnknown(ex, state.LogScope);
             }
             finally
             {
@@ -139,11 +135,12 @@ internal sealed class DurableMutationExecutor
     /// Unavailable with COMMIT_OUTCOME_UNKNOWN) for the caller.
     /// </summary>
     /// <param name="cause">Shutdown or journal failure that ended the wait.</param>
+    /// <param name="scope">Explicit request log correlation context.</param>
     /// <returns>The exception to throw instead of <paramref name="cause" />.</returns>
     /// <remarks>The frame may be durable while this process never applied it, and a restart replays it, so the caller must not see a definite failure.</remarks>
-    private SquirixException ReportCommitOutcomeUnknown(Exception cause)
+    private SquirixException ReportCommitOutcomeUnknown(Exception cause, object? scope)
     {
-        StorageLog.DurableMutationOutcomeUnknown(_logger, cause);
+        StorageLog.DurableMutationOutcomeUnknown(_logger, cause, scope);
         return ServerOpContract.CommitOutcomeUnknown();
     }
 
@@ -210,7 +207,7 @@ internal sealed class DurableMutationExecutor
             // The frame is on the ring, but shutdown or the failure latch closed the journal, so its memory apply never runs in this process:
             // release the apply slot exactly once, as for a failed append, yet report the outcome as unknown, not failed.
             RollbackKeyedBarrierState(state);
-            throw ReportCommitOutcomeUnknown(ex.InnerException ?? ex);
+            throw ReportCommitOutcomeUnknown(ex.InnerException ?? ex, state.LogScope);
         }
         catch
         {
@@ -319,6 +316,8 @@ internal sealed class DurableMutationExecutor
 
     private sealed class KeyedExecutionState
     {
+        internal object? LogScope { get; init; }
+
         /// <summary>Gets or sets a value indicating whether the memory apply began, so its own failures are not reported as commit-unknown.</summary>
         internal bool MemoryApplyStarted { get; set; }
 

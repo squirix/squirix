@@ -51,9 +51,9 @@ public sealed class TracingCacheDecoratorTests
                              .ReturnsAsync(ValueTask.FromResult(new NodeCacheAddOrGetResult<string>(false, new NodeCacheValueResult<string>(true, "existing"))));
         var cache = new TracingCacheDecorator<string>(innerExpectations.Object, nodeId);
 
-        _ = await cache.GetValueAsync("c", "k", cancellationToken);
-        await cache.SetEntryAsync("op", "c", "k", new NodeCacheEntry<string>("v"), cancellationToken);
-        _ = await cache.AddOrGetAsync("op", "c", "k", new NodeCacheEntry<string>("v"), cancellationToken);
+        _ = await cache.GetValueAsync("c", "k", null, cancellationToken);
+        await cache.SetEntryAsync("op", "c", "k", new NodeCacheEntry<string>("v"), null, cancellationToken);
+        _ = await cache.AddOrGetAsync("op", "c", "k", new NodeCacheEntry<string>("v"), null, cancellationToken);
 
         Activity[] captured;
         lock (spansLock)
@@ -82,8 +82,8 @@ public sealed class TracingCacheDecoratorTests
                              .ReturnsAsync((_, _, _, _, _) => ValueTask.FromException(failure));
         var cache = new TracingCacheDecorator<string>(innerExpectations.Object, "node");
 
-        var result = await cache.GetValueAsync("c", "k", cancellationToken);
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(cache.SetEntryAsync("op", "c", "k", new NodeCacheEntry<string>("v"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var result = await cache.GetValueAsync("c", "k", null, cancellationToken);
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(cache.SetEntryAsync("op", "c", "k", new NodeCacheEntry<string>("v"), null, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(result).IsEqualTo(new NodeCacheValueResult<string>(true, "v"));
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);

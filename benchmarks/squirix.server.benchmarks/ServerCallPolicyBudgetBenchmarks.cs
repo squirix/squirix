@@ -17,7 +17,7 @@ public class ServerCallPolicyBudgetBenchmarks
     private Meter? _meter;
     private ServerCallPolicy? _policy;
 
-    /// <summary>Gets or sets a value indicating whether the call carries an ambient operation budget.</summary>
+    /// <summary>Gets or sets a value indicating whether the call carries an explicit operation budget.</summary>
     [Params(false, true)]
     public bool WithBudget { get; set; }
 
@@ -38,7 +38,6 @@ public class ServerCallPolicyBudgetBenchmarks
     public async Task<int> ExecuteAsync()
     {
         var policy = ThrowHelper.Required(_policy, "Benchmark policy was not initialized.");
-        using var deadline = WithBudget ? ServerRpcDeadlineContext.Push(in _budget) : null;
         return await policy.ExecuteAsync(
                                42,
                                static async (value, _) =>
@@ -46,7 +45,8 @@ public class ServerCallPolicyBudgetBenchmarks
                                    await Task.Yield();
                                    return value;
                                },
-                               CancellationToken.None)
+                               CancellationToken.None,
+                               WithBudget ? _budget : null)
                            .ConfigureAwait(false);
     }
 

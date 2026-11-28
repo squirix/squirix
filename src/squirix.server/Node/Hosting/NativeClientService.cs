@@ -286,7 +286,7 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
         var logger = _services.Require<IServerLoggerFactory>().CreateLogger<NativeTlsListener>();
         var index = listeners.Count;
         var clock = _services.Require<TimeProvider>();
-        var cache = new CacheCommands(_services.Require<BinaryRequestAccessor>(), _services.Require<BinaryDispatch>(), validator, clock, _mutationReplay);
+        var cache = new CacheCommands(_services.Require<BinaryDispatch>(), validator, clock, _mutationReplay);
         Func<Stream, IPEndPoint, CancellationToken, CancellationToken, Task> serve =
             (stream, _, graceful, abort) => new Session(validator, cache, Interlocked.Increment(ref _respConnectionSequence), clock).RunAsync(stream, graceful, abort);
         AddListeners(_respUri, socket => new NativeTlsListener(socket, tls, serve, logger, 64), listeners);

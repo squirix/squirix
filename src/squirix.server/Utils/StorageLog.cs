@@ -24,10 +24,10 @@ internal static class StorageLog
             Events.DataDirectoryRootNotRestrictedEvent.Write(logger, ServerLogLevel.Warning, null, ValueTuple.Create(directory));
     }
 
-    internal static void DurableMutationOutcomeUnknown(IServerLogger logger, Exception exception)
+    internal static void DurableMutationOutcomeUnknown(IServerLogger logger, Exception exception, object? scope = null)
     {
         if (logger.IsEnabled(ServerLogLevel.Warning))
-            Events.DurableMutationOutcomeUnknownEvent.Write(logger, ServerLogLevel.Warning, exception, ValueTuple.Create());
+            Events.DurableMutationOutcomeUnknownEvent.Write(logger, ServerLogLevel.Warning, exception, ValueTuple.Create(), scope);
     }
 
     internal static void JournalAbandonedAppendsDrained(IServerLogger logger, int count, long bytes)

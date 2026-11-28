@@ -22,7 +22,7 @@ namespace Squirix.Server.Node.Services;
 /// them to their owner), and RF=1 hosts never register it, preserving the single-copy path byte for byte.
 /// </remarks>
 [Immutable]
-internal sealed class ReplicatedCache : ILogicalNamespacedCache<StoredValue>
+internal sealed class ReplicatedCache : IRequestCache<StoredValue>
 {
     private readonly ReplicaGroupCommitters _committers;
     private readonly ILogicalNamespacedCache<StoredValue> _inner;
@@ -48,7 +48,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<StoredValue>
     /// of the group this node leads statically is refused (Unavailable) while its copy is not complete.
     /// </exception>
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    public async ValueTask<NodeCacheEntry<StoredValue>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+    public async ValueTask<NodeCacheEntry<StoredValue>?> GetEntryAsync(string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken)
     {
         await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var entry = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
@@ -62,7 +62,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<StoredValue>
     /// </exception>
     /// <remarks>Reads the value and the deadline of a live entry without building the entry; only an expired entry is read whole, by the tombstone decision.</remarks>
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    public async ValueTask<NodeCacheValueResult<StoredValue>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
+    public async ValueTask<NodeCacheValueResult<StoredValue>> GetValueAsync(string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken)
     {
         await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var read = await _inner.GetValueWithDeadlineAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
@@ -75,7 +75,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<StoredValue>
 
     /// <inheritdoc />
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    public async ValueTask<NodeCacheValueRead<StoredValue>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken)
+    public async ValueTask<NodeCacheValueRead<StoredValue>> GetValueWithDeadlineAsync(string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken)
     {
         await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var read = await _inner.GetValueWithDeadlineAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
@@ -87,52 +87,52 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<StoredValue>
     }
 
     /// <inheritdoc />
-    public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-        new(_committers.ForKey(cacheName, key).CommitRemoveAsync(operationId, cacheName, key, cancellationToken));
+    public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken) =>
+        new(_committers.ForKey(cacheName, key).CommitRemoveAsync(operationId, cacheName, key, cancellationToken, request?.LogScope));
 
     /// <inheritdoc />
-    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-        new(_committers.ForKey(cacheName, key).CommitRemoveExpirationAsync(operationId, cacheName, key, cancellationToken));
+    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken) =>
+        new(_committers.ForKey(cacheName, key).CommitRemoveExpirationAsync(operationId, cacheName, key, cancellationToken, request?.LogScope));
 
     /// <inheritdoc />
-    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) =>
-        new(_committers.ForKey(cacheName, key).CommitSetAsync(operationId, cacheName, key, entry, cancellationToken));
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, ICacheRequestContext? request, CancellationToken cancellationToken) =>
+        new(_committers.ForKey(cacheName, key).CommitSetAsync(operationId, cacheName, key, entry, cancellationToken, request?.LogScope));
 
     /// <inheritdoc />
-    public ValueTask<bool> TryReplaceEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) =>
-        new(_committers.ForKey(cacheName, key).CommitReplaceEntryAsync(operationId, cacheName, key, entry, cancellationToken));
+    public ValueTask<bool> TryReplaceEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, ICacheRequestContext? request, CancellationToken cancellationToken) =>
+        new(_committers.ForKey(cacheName, key).CommitReplaceEntryAsync(operationId, cacheName, key, entry, cancellationToken, request?.LogScope));
 
     /// <inheritdoc />
-    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
-        new(_committers.ForKey(cacheName, key).CommitTouchAsync(operationId, cacheName, key, expiration, cancellationToken));
+    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, ICacheRequestContext? request, CancellationToken cancellationToken) =>
+        new(_committers.ForKey(cacheName, key).CommitTouchAsync(operationId, cacheName, key, expiration, cancellationToken, request?.LogScope));
 
     /// <inheritdoc />
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    public async ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken)
+    public async ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, ICacheRequestContext? request, CancellationToken cancellationToken)
     {
         var committer = _committers.ForKey(cacheName, key);
         var live = await ExistingForAddAsync(committer, operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
-        return live == null && await committer.CommitTryAddAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+        return live == null && await committer.CommitTryAddAsync(operationId, cacheName, key, entry, cancellationToken, request?.LogScope).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    public async ValueTask<NodeCacheAddOrGetResult<StoredValue>> AddOrGetAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken)
+    public async ValueTask<NodeCacheAddOrGetResult<StoredValue>> AddOrGetAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, ICacheRequestContext? request, CancellationToken cancellationToken)
     {
         var committer = _committers.ForKey(cacheName, key);
         var live = await ExistingForAddAsync(committer, operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (live == null && await committer.CommitTryAddAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false))
+        if (live == null && await committer.CommitTryAddAsync(operationId, cacheName, key, entry, cancellationToken, request?.LogScope).ConfigureAwait(false))
             return new NodeCacheAddOrGetResult<StoredValue>(true, default);
 
         var observed = live == null
-            ? await GetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false)
+            ? await GetValueAsync(cacheName, key, request, cancellationToken).ConfigureAwait(false)
             : new NodeCacheValueResult<StoredValue>(true, live.Value);
         return new NodeCacheAddOrGetResult<StoredValue>(false, observed);
     }
 
     /// <inheritdoc />
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, StoredValue value, CancellationToken cancellationToken)
+    public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, StoredValue value, ICacheRequestContext? request, CancellationToken cancellationToken)
     {
         var committer = _committers.ForKey(cacheName, key);
         if (await PeekEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false) == null &&
@@ -143,7 +143,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<StoredValue>
                 return false;
         }
 
-        return await committer.CommitUpdateAsync(operationId, cacheName, key, in value, cancellationToken).ConfigureAwait(false);
+        return await committer.CommitUpdateAsync(operationId, cacheName, key, in value, cancellationToken, request?.LogScope).ConfigureAwait(false);
     }
 
     /// <summary>Reads an adapter entry, serializing sliding access through the group commit gate.</summary>
@@ -152,16 +152,17 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<StoredValue>
     /// <param name="key">Target key.</param>
     /// <param name="refresh">Whether to omit the payload from the result.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="request">Explicit request log correlation context.</param>
     /// <returns>The value observed by Get, if any.</returns>
-    internal async ValueTask<ReadOnlyMemory<byte>?> AccessDistributedAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken)
+    internal async ValueTask<ReadOnlyMemory<byte>?> AccessDistributedAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken, ICacheRequestContext? request = null)
     {
         var committer = _committers.ForKey(cacheName, key);
         if (refresh && committer.Registry.HasRecordedOutcome(committer.GroupId, cacheName, operationId))
-            return await committer.CommitDistributedAccessAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false);
+            return await committer.CommitDistributedAccessAsync(operationId, cacheName, key, refresh, cancellationToken, request?.LogScope).ConfigureAwait(false);
 
-        var entry = await GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var entry = await GetEntryAsync(cacheName, key, request, cancellationToken).ConfigureAwait(false);
         if (refresh && committer.Registry.HasRecordedOutcome(committer.GroupId, cacheName, operationId))
-            return await committer.CommitDistributedAccessAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false);
+            return await committer.CommitDistributedAccessAsync(operationId, cacheName, key, refresh, cancellationToken, request?.LogScope).ConfigureAwait(false);
 
         if (entry == null)
             return null;
@@ -172,7 +173,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<StoredValue>
             return readOnlyResult;
         var (_, renewTo, expired) = DistributedCacheAccess.Decide(entry, committer.Clock.GetUtcNow().UtcDateTime);
         return expired || renewTo != null
-            ? await committer.CommitDistributedAccessAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false)
+            ? await committer.CommitDistributedAccessAsync(operationId, cacheName, key, refresh, cancellationToken, request?.LogScope).ConfigureAwait(false)
             : readOnlyResult;
     }
 

@@ -43,6 +43,7 @@ public sealed class JournalDeadlinePinningReplayTests : IsolatedStorageTestBase
                 CacheName,
                 Key,
                 new NodeCacheEntry<string>("v", expiresUtc: clock.GetUtcNow().UtcDateTime.Add(Ttl)),
+                null,
                 ct),
             TimeSpan.Zero,
             PastStart,
@@ -60,8 +61,8 @@ public sealed class JournalDeadlinePinningReplayTests : IsolatedStorageTestBase
         var written = await Kit.WriteAsync(
             static async (cache, ct) =>
             {
-                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), ct);
-                _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, ct)).IsTrue();
+                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), null, ct);
+                _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, null, ct)).IsTrue();
             },
             TimeSpan.Zero,
             PastStart,
