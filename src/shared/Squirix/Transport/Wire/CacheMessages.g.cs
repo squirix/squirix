@@ -147,9 +147,12 @@ internal sealed class CacheValue : WireMessage
 
     internal static CacheValue FromOwnedBinary(byte[] payload) => new() { KindCase = KindOneofCase.BinaryValue, _bits = WireByteRange.OwnedArray, _reference = payload };
 
+    // Owned bytes can be shared with an immutable consumer while this value is still available for forwarding.
+    internal byte[]? OwnedBinaryValue => KindCase == KindOneofCase.BinaryValue && _bits == WireByteRange.OwnedArray ? _reference as byte[] : null;
+
     internal byte[] TakeBinaryValue()
     {
-        if (KindCase != KindOneofCase.BinaryValue || _bits != WireByteRange.OwnedArray || _reference is not byte[] owned)
+        if (OwnedBinaryValue is not { } owned)
             return BinaryValue.ToArray();
         _reference = null;
         _bits = 0;
