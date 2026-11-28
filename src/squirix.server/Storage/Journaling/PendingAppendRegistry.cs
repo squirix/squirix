@@ -17,9 +17,7 @@ namespace Squirix.Server.Storage.Journaling;
 /// </summary>
 internal sealed class PendingAppendRegistry
 {
-#pragma warning disable IDE0028 // Identity-keyed registry: JournalWorkItem is a record with value equality, so the suggested collection expression would drop ReferenceEqualityComparer and break the drain/ring ownership race.
-    private readonly Dictionary<JournalWorkItem, PendingAppendEntry> _appends = new(ReferenceEqualityComparer.Instance);
-#pragma warning restore IDE0028
+    private readonly Dictionary<JournalWorkItem, PendingAppendEntry> _appends = [with(ReferenceEqualityComparer.Instance)];
     private readonly Lock _sync = new();
     private Exception? _failure;
     private long _pendingBytes;

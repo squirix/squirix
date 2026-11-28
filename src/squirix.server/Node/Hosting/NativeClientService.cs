@@ -313,7 +313,6 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
         }
     }
 
-#pragma warning disable CA2000 // Both branches transfer ownership of the returned certificate to the listener service.
     private X509Certificate2 AcquireCertificate()
     {
         if (_suppliedCertificate != null)
@@ -336,7 +335,6 @@ internal sealed class NativeClientService : INodeService, IAsyncDisposable
 
         throw new InvalidOperationException("The TLS certificate requires a private key.");
     }
-#pragma warning restore CA2000
 
     private ValueTask<bool> AuthenticateManagementAsync(string bearer, CancellationToken cancellationToken)
     {

@@ -20,9 +20,7 @@ internal sealed class ReplicaPendingApplies
     private static readonly IComparer<PreparedReplicaMutation> IndexOrder =
         Comparer<PreparedReplicaMutation>.Create(static (left, right) => left.LogIndex.CompareTo(right.LogIndex));
 
-#pragma warning disable IDE0028 // The collection expression would discard the log-index comparer.
-    private readonly SortedSet<PreparedReplicaMutation> _entries = new(IndexOrder);
-#pragma warning restore IDE0028
+    private readonly SortedSet<PreparedReplicaMutation> _entries = [with(IndexOrder)];
     private readonly GroupIdempotencyState _idempotency;
     private readonly IReplicaCommitPipeline _pipeline;
     private readonly ReplicaRecoveredCommitBoundary _recoveredBoundary;
