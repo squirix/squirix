@@ -4,7 +4,6 @@ using System.Diagnostics.Metrics;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -22,6 +21,9 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.LedGroupsTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
@@ -198,9 +200,9 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         await committer.CommitSetAsync(NewOperationId(), CacheName, "a", new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
         clock.Advance(Ttl);
         var lookups = 0;
-        var locator = new INodeLocatorCreateExpectations();
-        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Callback((_, _) => Interlocked.Increment(ref lookups) == 1 ? "n1" : "n2");
-        using var sweep = new ReplicaExpirationSweepService(LeadOwn(committer), physical.ExpiredKeys, locator.Instance(), new EventRecordingLogger()) { MaxPerPass = 2 };
+        var locator = INodeLocator.Mock(MockBehavior.Strict);
+        _ = locator.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns((_, _) => Interlocked.Increment(ref lookups) == 1 ? "n1" : "n2");
+        using var sweep = new ReplicaExpirationSweepService(LeadOwn(committer), physical.ExpiredKeys, locator.Object, new EventRecordingLogger()) { MaxPerPass = 2 };
 
         var expired = (await sweep.SweepPassAsync(cancellationToken)).Expired;
 
@@ -315,9 +317,9 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
 
         clock.Advance(Ttl);
         var appended = committer.LocalAppends.Snapshot().Appended;
-        var locator = new INodeLocatorCreateExpectations();
-        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue("n1");
-        using var sweep = new ReplicaExpirationSweepService(LeadOwn(committer), physical.ExpiredKeys, locator.Instance(), new EventRecordingLogger()) { MaxPerPass = burst };
+        var locator = INodeLocator.Mock(MockBehavior.Strict);
+        _ = locator.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns("n1");
+        using var sweep = new ReplicaExpirationSweepService(LeadOwn(committer), physical.ExpiredKeys, locator.Object, new EventRecordingLogger()) { MaxPerPass = burst };
 
         var expired = (await sweep.SweepPassAsync(cancellationToken)).Expired;
 
@@ -444,16 +446,16 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
 
     private static ReplicaExpirationSweepService CreateSweep(ReplicaGroupCommitter committer, PhysicalCache<StoredValue> physical, EventRecordingLogger log)
     {
-        var locator = new INodeLocatorCreateExpectations();
-        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Callback(static (_, key) => string.Equals(key, "followed", StringComparison.Ordinal) ? "n2" : "n1");
-        return new ReplicaExpirationSweepService(LeadOwn(committer), physical.ExpiredKeys, locator.Instance(), log) { MaxPerPass = 2 };
+        var locator = INodeLocator.Mock(MockBehavior.Strict);
+        _ = locator.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns(static (_, key) => string.Equals(key, "followed", StringComparison.Ordinal) ? "n2" : "n1");
+        return new ReplicaExpirationSweepService(LeadOwn(committer), physical.ExpiredKeys, locator.Object, log) { MaxPerPass = 2 };
     }
 
     private static INodeLocator LocatorOf(string owner)
     {
-        var locator = new INodeLocatorCreateExpectations();
-        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(owner);
-        return locator.Instance();
+        var locator = INodeLocator.Mock(MockBehavior.Strict);
+        _ = locator.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns(owner);
+        return locator.Object;
     }
 
     private static NodeCacheEntry<StoredValue>? Raw(PhysicalCache<StoredValue> physical, string key, CancellationToken cancellationToken) =>

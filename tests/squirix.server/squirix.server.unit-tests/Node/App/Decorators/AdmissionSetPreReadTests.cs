@@ -3,7 +3,6 @@ using System.Diagnostics.Metrics;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
@@ -16,6 +15,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
@@ -148,20 +150,20 @@ public sealed class AdmissionSetPreReadTests : DisposableServerUnitTestBase
             Func<string, string, bool>? hasMemberPressure,
             Func<string, string, string, bool>? hasRecordedOutcome)
         {
-            var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-            _ = inner.Setups.SetEntryAsync(OperationId, CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                .Callback((_, _, _, _, _) =>
+            var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+            _ = inner.SetEntryAsync(OperationId, CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                .ReturnsAsync((_, _, _, _, _) =>
                 {
                     Sets.Value++;
                     return ValueTask.CompletedTask;
                 });
-            var accounting = new IMemoryUsageAccountingCreateExpectations();
-            _ = accounting.Setups.ReadEstimatedBytes().ReturnValue(currentBytes);
-            _ = accounting.Setups.RecordAdmissionRejection();
+            var accounting = IMemoryUsageAccounting.Mock(MockBehavior.Strict);
+            _ = accounting.ReadEstimatedBytes().Returns(currentBytes);
+            _ = accounting.RecordAdmissionRejection();
             var options = new PressureOptions { MaxEstimatedCacheBytes = LimitBytes, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 };
-            var gate = new PressureGate(new StateEvaluator(options), accounting.Instance(), "node-a", owner._testMeter);
+            var gate = new PressureGate(new StateEvaluator(options), accounting.Object, "node-a", owner._testMeter);
             Cache = new MemoryAdmissionCacheDecorator<string>(
-                inner.Instance(),
+                inner.Object,
                 gate,
                 new CacheEntrySizeEstimator<string>(),
                 hasRecordedOutcome,

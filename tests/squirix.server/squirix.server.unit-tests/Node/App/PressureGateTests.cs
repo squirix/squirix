@@ -10,6 +10,8 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.App;
 
@@ -98,12 +100,12 @@ public sealed class PressureGateTests
     /// <returns>The gate.</returns>
     private static PressureGate Create(long currentBytes, Meter meter, StrongBox<int>? rejections)
     {
-        var accounting = new IMemoryUsageAccountingCreateExpectations();
-        _ = accounting.Setups.ReadEstimatedBytes().ReturnValue(currentBytes);
+        var accounting = IMemoryUsageAccounting.Mock(MockBehavior.Strict);
+        _ = accounting.ReadEstimatedBytes().Returns(currentBytes);
         if (rejections != null)
-            _ = accounting.Setups.RecordAdmissionRejection().Callback(() => rejections.Value++);
+            _ = accounting.RecordAdmissionRejection().Callback(() => rejections.Value++);
 
         var options = new PressureOptions { MaxEstimatedCacheBytes = 1000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 };
-        return new PressureGate(new StateEvaluator(options), accounting.Instance(), "node-a", meter);
+        return new PressureGate(new StateEvaluator(options), accounting.Object, "node-a", meter);
     }
 }

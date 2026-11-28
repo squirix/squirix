@@ -4,13 +4,11 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Logging;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Logging;
@@ -20,6 +18,8 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -225,11 +225,11 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         await ReplicaApplyServiceTests.SeedAsync(registry, "n2", 1UL, cancellationToken, "k1");
         _ = registry.TryGetLog("n2", out var group);
         var before = await group!.GetStatusAsync(cancellationToken);
-        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
-                 .Callback(static (_, _, _, _, _) => ValueTask.FromException(new JournalCapacityExceededException()));
+        var cache = TestDoubles.CreateCacheWithEntryWriteOverloads<StoredValue>();
+        _ = cache.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
+                 .ReturnsAsync(static (_, _, _, _, _) => ValueTask.FromException(new JournalCapacityExceededException()));
         using var meter = new Meter("test");
-        var appliers = ReplicaApplyServiceTests.CreateAppliers(registry, cache.Instance(), meter);
+        var appliers = ReplicaApplyServiceTests.CreateAppliers(registry, cache.Object, meter);
         var log = new EventRecordingLogger();
         using var election = Create(registry, 3, new Leadership(), log);
         using var apply = new ReplicaApplyService(

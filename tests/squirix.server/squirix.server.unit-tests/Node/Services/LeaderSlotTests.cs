@@ -15,6 +15,8 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -76,7 +78,7 @@ public sealed class LeaderSlotTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-slot-probe");
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        var probe = new ReplicaVerificationProbe(registry, new FixedLocator(), new IReplicaRpcGatewayCreateExpectations().Instance(), ("n1", "n2"), Fingerprint, 1, NullLogger.Instance);
+        var probe = new ReplicaVerificationProbe(registry, new FixedLocator(), IReplicaRpcGateway.Mock(MockBehavior.Strict).Object, ("n1", "n2"), Fingerprint, 1, NullLogger.Instance);
 
         var (members, header) = probe.BuildMembership(5UL);
 
@@ -85,7 +87,7 @@ public sealed class LeaderSlotTests : ServerUnitTestBase
         _ = await Assert.That((header.GroupId, header.LeaderNodeId, header.SenderNodeId, header.Term)).IsEqualTo(("n1", "n2", "n2", 5UL));
         _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(
             registry,
-            static served => _ = new ReplicaVerificationProbe(served, new FixedLocator(), new IReplicaRpcGatewayCreateExpectations().Instance(), ("n1", "n9"), Fingerprint, 1, NullLogger.Instance));
+            static served => _ = new ReplicaVerificationProbe(served, new FixedLocator(), IReplicaRpcGateway.Mock(MockBehavior.Strict).Object, ("n1", "n9"), Fingerprint, 1, NullLogger.Instance));
     }
 
     /// <summary>Periodic verification renews quorum contact before admitting any follower to the write quorum.</summary>
@@ -104,9 +106,9 @@ public sealed class LeaderSlotTests : ServerUnitTestBase
         await registry.OpenAsync(cancellationToken);
         ReplicaReadinessProbe.UnverifyFollowers(registry.EligibilityFor("n1"), 1);
         var ready = new FollowerLogStatus("n1", Fingerprint, 1, 2, string.Empty, 1, 2, 0, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete);
-        var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.GetCommitReadinessAsync(2UL, cancellationToken)
-               .ReturnValue(new ValueTask<(FollowerLogStatus Status, bool CanCommit)>((ready, true)));
+        var log = IFollowerLog.Mock(MockBehavior.Strict);
+        _ = log.GetCommitReadinessAsync(2UL, cancellationToken)
+               .ReturnsAsync(new ValueTask<(FollowerLogStatus Status, bool CanCommit)>((ready, true)));
 
         var state = registry.StateFor("n1");
         state.SetElectionDriven(true);
@@ -118,7 +120,7 @@ public sealed class LeaderSlotTests : ServerUnitTestBase
         gateway.Set("n1", FollowerMode.Mismatch);
         gateway.Set("n3", FollowerMode.Mismatch);
         var probe = new ReplicaVerificationProbe(registry, new FixedLocator(), gateway, ("n1", "n2"), Fingerprint, 1, NullLogger.Instance);
-        var leaderLog = log.Instance();
+        var leaderLog = log.Object;
         _ = await probe.ProbeAsync(leaderLog, 2UL, false, cancellationToken);
 
         _ = await Assert.That(gateway.Requests).IsEqualTo(2);
@@ -140,7 +142,7 @@ public sealed class LeaderSlotTests : ServerUnitTestBase
         var header = new ReplicaRpcHeader("n1", Fingerprint, 1, 1, "n2", "n2");
         var status = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 0, 0, 0, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete);
         var senders = ReplicaFollowerSenders.Create(
-            new IReplicaRpcGatewayCreateExpectations().Instance(),
+            IReplicaRpcGateway.Mock(MockBehavior.Strict).Object,
             ["n1", "n2", "n3"],
             1,
             in status,

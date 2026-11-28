@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.ProtocolModel;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
@@ -13,6 +12,9 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -50,7 +52,7 @@ public sealed class QuorumContactConformanceTests
 
         var header = new ReplicaRpcHeader(Group, fingerprint, 1UL, Term, members[0], members[0]);
         var state = registry.StateFor(Group);
-        var driver = new ReplicaGroupElection(state, log, new IReplicaVoteGatewayCreateExpectations().Instance(), CreateLeadership(), members, in header);
+        var driver = new ReplicaGroupElection(state, log, new ReplicaVoteGatewayWithDefaults(IReplicaVoteGateway.Mock(MockBehavior.Strict).Object), CreateLeadership(), members, in header);
         _ = await driver.StepAsync(cancellationToken);
         _ = state.BecomeLeader(Term);
         _ = await Assert.That(state.GrantAuthority(Term)).IsTrue();
@@ -88,12 +90,12 @@ public sealed class QuorumContactConformanceTests
 
     private static IReplicaLeadership CreateLeadership()
     {
-        var leadership = new IReplicaLeadershipCreateExpectations();
-        _ = leadership.Setups.HeartbeatAsync(Group, Arg.Any<CancellationToken>()).ReturnValue(Task.CompletedTask);
-        _ = leadership.Setups.ApplyProgress(Group).ReturnValue(default);
-        _ = leadership.Setups.AppendProgress(Group).ReturnValue(default);
-        _ = leadership.Setups.RetireAsync(Group, Arg.Any<CancellationToken>()).ReturnValue(Task.FromResult(true));
-        return leadership.Instance();
+        var leadership = IReplicaLeadership.Mock(MockBehavior.Strict);
+        _ = leadership.HeartbeatAsync(Group, Arg.Any<CancellationToken>()).ReturnsAsync(Task.CompletedTask);
+        _ = leadership.ApplyProgress(Group).Returns(default(ReplicaApplyProgress));
+        _ = leadership.AppendProgress(Group).Returns(default(ReplicaAppendProgress));
+        _ = leadership.RetireAsync(Group, Arg.Any<CancellationToken>()).ReturnsAsync(Task.FromResult(true));
+        return leadership.Object;
     }
 
     private sealed class Locator : IReplicaGroupLocator

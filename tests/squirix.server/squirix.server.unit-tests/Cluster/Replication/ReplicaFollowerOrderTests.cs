@@ -34,7 +34,7 @@ public sealed class ReplicaFollowerOrderTests : ServerUnitTestBase
         await SeededLogs.SeedGroupsAsync(dir, [GroupId], cancellationToken);
         await using var registry = new ReplicaGroupRegistry(dir, [GroupId], 1, Fingerprint, 1, NullLoggerFactory.Instance, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks }) { ElectionClock = TimeProvider.System };
         await registry.OpenAsync(cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
 
         hooks.StallNextFrameWrite();
         var first = follower.AppendAsync(GroupId, Fingerprint, 1, Batch(1, 0), cancellationToken);

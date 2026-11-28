@@ -1,13 +1,15 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -32,9 +34,9 @@ internal static class OwnedLogTestKit
 
     internal static IJournalDurabilityCoordinator Durable()
     {
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
-        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
-        return durability.Instance();
+        var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
+        _ = durability.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
+        return durability.Object;
     }
 
     internal static long HeaderLength() => GroupLogSlots.HeaderSize;

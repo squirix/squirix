@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Cluster;
@@ -20,6 +19,9 @@ using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Adapters.Wire;
 
@@ -168,29 +170,29 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
 
     private static RoutedCacheOperations<StoredValue> CreateAdapter(CapturingCallInvoker invoker, ServerCallPolicy policy, bool internalCall, IGroupLeaderTable? table = null)
     {
-        var ownership = new INodeOwnershipResolverCreateExpectations();
-        _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
-        _ = ownership.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(Remote);
-        var invocation = new IRemoteInvocationStateCreateExpectations();
-        _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(internalCall);
-        var gate = new IBackpressureGateCreateExpectations();
-        _ = gate.Setups.AcquireAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                .ReturnValue(ValueTask.FromResult((Decision.Accepted(), Lease.Empty)));
-        var clientIds = new IBackpressureClientIdResolverCreateExpectations();
-        _ = clientIds.Setups.Resolve().ReturnValue("client");
-        var pool = new IServerClientPoolCreateExpectations();
-        _ = pool.Setups.ForNode(Arg.Any<string>()).ReturnValue(invoker);
-        _ = pool.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(policy);
+        var ownership = INodeOwnershipResolver.Mock(MockBehavior.Strict);
+        _ = ownership.SelfNodeId.Returns(Self);
+        _ = ownership.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns(Remote);
+        var invocation = IRemoteInvocationState.Mock(MockBehavior.Strict);
+        _ = invocation.IsInternalOwnerInvocation.Returns(internalCall);
+        var gate = IBackpressureGate.Mock(MockBehavior.Strict);
+        _ = gate.AcquireAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .ReturnsAsync(ValueTask.FromResult((Decision.Accepted(), Lease.Empty)));
+        var clientIds = IBackpressureClientIdResolver.Mock(MockBehavior.Strict);
+        _ = clientIds.Resolve().Returns("client");
+        var pool = IServerClientPool.Mock(MockBehavior.Strict);
+        _ = pool.ForNode(Arg.Any<string>()).Returns(invoker);
+        _ = pool.PolicyFor(Arg.Any<string>()).Returns(policy);
 
         var router = table == null
-            ? OwnerRouters.Static(ownership.Instance(), invocation.Instance(), Self)
-            : new OwnerRouter(ownership.Instance(), invocation.Instance(), RingAgreements.Create(), table, OwnerRouters.LeaderWait, TimeProvider.System, OwnerRouters.Locator(Self, Remote, "node-c"));
+            ? OwnerRouters.Static(ownership.Object, invocation.Object, Self)
+            : new OwnerRouter(ownership.Object, invocation.Object, RingAgreements.Create(), table, OwnerRouters.LeaderWait, TimeProvider.System, OwnerRouters.Locator(Self, Remote, "node-c"));
 
         // The cache operations and the coordinator have no setups: any call to them fails the test.
         return new RoutedCacheOperations<StoredValue>(
-            new IInboundEndpointCacheOperationsCreateExpectations<StoredValue>().Instance(),
+            IInboundEndpointCacheOperations<StoredValue>.Mock(MockBehavior.Strict).Object,
             router,
-            new OwnerRpcForwarder(pool.Instance(), gate.Instance(), clientIds.Instance(), RingAgreements.Create()),
+            new OwnerRpcForwarder(pool.Object, gate.Object, clientIds.Object, RingAgreements.Create()),
             false,
             TimeProvider.System);
     }

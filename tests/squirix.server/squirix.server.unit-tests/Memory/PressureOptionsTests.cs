@@ -18,7 +18,7 @@ public sealed class PressureOptionsTests
     [Test]
     public async Task DefaultsMatchContract()
     {
-        var resolved = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), RocksDoubles.CreateMemoryBudget(10_000));
+        var resolved = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), TestDoubles.CreateMemoryBudget(10_000));
         _ = await Assert.That(resolved.MaxEstimatedCacheBytes).IsEqualTo(8_000L);
         _ = await Assert.That(resolved.HighPressureThresholdPercent).IsEqualTo(80);
         _ = await Assert.That(resolved.CriticalPressureThresholdPercent).IsEqualTo(95);

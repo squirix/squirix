@@ -44,7 +44,7 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
         var term = incomplete ? 3UL : 0UL;
         using var dir = new TempDirectory("squirix-follower-not-complete");
         await using var registry = await OpenRegistryAsync(dir, state, offered, term, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         var path = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         var before = await GroupMetadataFile.ReadBytesAsync(path, cancellationToken);
 
@@ -71,7 +71,7 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-unseeded-ballots");
         await using var registry = await OpenRegistryAsync(dir, GroupMemberState.Unseeded, false, durableTerm, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         var path = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         var before = await GroupMetadataFile.ReadBytesAsync(path, cancellationToken);
         var ballot = new ElectionVoteRequest("n3", 5UL, 0UL, 0UL);
@@ -96,7 +96,7 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-incomplete-ballots");
         await using var registry = await OpenRegistryAsync(dir, GroupMemberState.Incomplete, offered, 0UL, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         var ballot = new ElectionVoteRequest("n3", 5UL, 0UL, 0UL);
 
         var preVote = await follower.PreVoteAsync(GroupId, Fingerprint, 1UL, ballot, cancellationToken);
@@ -120,7 +120,7 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-incomplete-term");
         await using var registry = await OpenRegistryAsync(dir, GroupMemberState.Incomplete, false, 1UL, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         var vote = await follower.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 2UL, 0UL, 0UL), cancellationToken);
 
         var append = await follower.AppendAsync(GroupId, Fingerprint, 1UL, Batch(LeaderId, false), cancellationToken);
@@ -140,7 +140,7 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-incomplete-contact");
         await using var registry = await OpenRegistryAsync(dir, GroupMemberState.Incomplete, false, 1UL, cancellationToken);
         registry.StateFor(GroupId).SetElectionDriven(true);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         var ballot = new ElectionVoteRequest("n3", 2UL, 0UL, 0UL);
         var before = await follower.PreVoteAsync(GroupId, Fingerprint, 1UL, ballot, cancellationToken);
 
@@ -159,7 +159,7 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-incomplete-offer");
         await using var registry = await OpenRegistryAsync(dir, GroupMemberState.Incomplete, true, 0UL, cancellationToken);
-        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
         var path = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         var before = await GroupMetadataFile.ReadBytesAsync(path, cancellationToken);
 

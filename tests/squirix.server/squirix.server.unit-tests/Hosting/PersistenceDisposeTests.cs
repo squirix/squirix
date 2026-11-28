@@ -19,6 +19,8 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Hosting;
 
@@ -94,14 +96,14 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         var openAtJournalDispose = false;
         var host = provider.GetRequiredService<JournalCoordinatorHost>();
         var journal = host.Coordinator;
-        var expectations = new IJournalCoordinatorCreateExpectations();
-        _ = expectations.Setups.DisposeAsync().Callback(async () =>
+        var expectations = IJournalCoordinator.Mock(MockBehavior.Strict);
+        _ = expectations.DisposeAsync().ReturnsAsync(async () =>
         {
             _ = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
             openAtJournalDispose = !CanLockExclusively(groupLog);
             await journal.DisposeAsync();
         });
-        host.Attach(expectations.Instance());
+        host.Attach(expectations.Object);
 
         await provider.DisposeAsync();
 
@@ -124,13 +126,13 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         var ledger = provider.GetRequiredService<Ledger>();
         var journal = host.Coordinator;
         Exception? readFailure = null;
-        var expectations = new IJournalCoordinatorCreateExpectations();
-        _ = expectations.Setups.DisposeAsync().Callback(async () =>
+        var expectations = IJournalCoordinator.Mock(MockBehavior.Strict);
+        _ = expectations.DisposeAsync().ReturnsAsync(async () =>
         {
             readFailure = await ledger.ReadCurrentOrDefaultAsync(cancellationToken).CaptureFailureAsync(static ex => ex is ObjectDisposedException);
             await journal.DisposeAsync();
         });
-        host.Attach(expectations.Instance());
+        host.Attach(expectations.Object);
 
         await provider.DisposeAsync();
 
@@ -194,13 +196,13 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
     /// <param name="failure">The failure the dispose throws.</param>
     private static void AttachThrowingJournal(JournalCoordinatorHost host, IJournalCoordinator journal, TimeoutException failure)
     {
-        var expectations = new IJournalCoordinatorCreateExpectations();
-        _ = expectations.Setups.DisposeAsync().Callback(async () =>
+        var expectations = IJournalCoordinator.Mock(MockBehavior.Strict);
+        _ = expectations.DisposeAsync().ReturnsAsync(async () =>
         {
             await journal.DisposeAsync();
             throw failure;
         });
-        host.Attach(expectations.Instance());
+        host.Attach(expectations.Object);
     }
 
     private async Task<NodeProvider> BuildProviderAsync(Meter meter, EventRecordingLogger? log, CancellationToken cancellationToken)

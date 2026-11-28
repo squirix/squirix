@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -17,6 +16,9 @@ using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
@@ -45,12 +47,12 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     public async Task OutcomeLookupUsesKeyGroup(CancellationToken cancellationToken)
     {
         var entry = new NodeCacheEntry<string> { Value = "v", Version = 1 };
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(CacheName, Arg.Any<string>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
-        _ = inner.Setups.SetEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetEntryAsync(CacheName, Arg.Any<string>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
+        _ = inner.SetEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
         var accounting = CreateAccounting();
         var cache = Create(
-            inner.Instance(),
+            inner.Object,
             accounting,
             static (cacheName, key, operationId) => string.Equals(cacheName, CacheName, StringComparison.Ordinal)
                                                     && string.Equals(key, Key, StringComparison.Ordinal)
@@ -69,11 +71,11 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     public async Task RecordedSetReplaysUnderPressure(CancellationToken cancellationToken)
     {
         var entry = new NodeCacheEntry<string> { Value = "v", Version = 1 };
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
-        _ = inner.Setups.SetEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
+        _ = inner.SetEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
         var accounting = CreateAccounting();
-        var cache = Create(inner.Instance(), accounting, static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal), 1);
+        var cache = Create(inner.Object, accounting, static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal), 1);
 
         await cache.SetEntryAsync("op-1", CacheName, Key, entry, cancellationToken);
 
@@ -86,17 +88,17 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     public async Task RecordedUpdateAndAddReplayUnderPressure(CancellationToken cancellationToken)
     {
         var stored = new NodeCacheEntry<string> { Value = "v", Version = 1 };
-        var present = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = present.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(stored));
-        _ = present.Setups.UpdateAsync("op-1", CacheName, Key, "v2", Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
-        var absent = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = absent.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
-        _ = absent.Setups.TryAddEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
+        var present = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = present.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(stored));
+        _ = present.UpdateAsync("op-1", CacheName, Key, "v2", Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(true));
+        var absent = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = absent.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
+        _ = absent.TryAddEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(true));
         var updateAccounting = CreateAccounting();
         var addAccounting = CreateAccounting();
-        var updated = await Create(present.Instance(), updateAccounting, static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal), 1)
+        var updated = await Create(present.Object, updateAccounting, static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal), 1)
            .UpdateAsync("op-1", CacheName, Key, "v2", cancellationToken);
-        var added = await Create(absent.Instance(), addAccounting, static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal), 1)
+        var added = await Create(absent.Object, addAccounting, static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal), 1)
            .TryAddEntryAsync("op-1", CacheName, Key, stored, cancellationToken);
 
         _ = await Assert.That(updated).IsTrue();
@@ -111,10 +113,10 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     public async Task RetriedAddReplaysRecordedOutcome(CancellationToken cancellationToken)
     {
         var entry = new NodeCacheEntry<string> { Value = "v", Version = 1 };
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(entry));
-        _ = inner.Setups.TryAddEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
-        var cache = Create(inner.Instance(), CreateAccounting(), static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal));
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(entry));
+        _ = inner.TryAddEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(true));
+        var cache = Create(inner.Object, CreateAccounting(), static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal));
 
         var added = await cache.TryAddEntryAsync("op-1", CacheName, Key, entry, cancellationToken);
 
@@ -126,10 +128,10 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     [Test]
     public async Task RetriedUpdateReplaysRecordedOutcome(CancellationToken cancellationToken)
     {
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
-        _ = inner.Setups.UpdateAsync("op-1", CacheName, Key, "v2", Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
-        var cache = Create(inner.Instance(), CreateAccounting(), static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal));
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
+        _ = inner.UpdateAsync("op-1", CacheName, Key, "v2", Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(true));
+        var cache = Create(inner.Object, CreateAccounting(), static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal));
 
         var updated = await cache.UpdateAsync("op-1", CacheName, Key, "v2", cancellationToken);
 
@@ -142,9 +144,9 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     public async Task SingleCopyAddAnsweredHere(CancellationToken cancellationToken)
     {
         var entry = new NodeCacheEntry<string> { Value = "v", Version = 1 };
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(entry));
-        var cache = Create(inner.Instance(), CreateAccounting(), null);
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(entry));
+        var cache = Create(inner.Object, CreateAccounting(), null);
 
         // The inner double has no add set up: a call would throw.
         var added = await cache.TryAddEntryAsync("op-3", CacheName, Key, entry, cancellationToken);
@@ -158,15 +160,15 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     public async Task SingleCopySetSkipsRead(CancellationToken cancellationToken)
     {
         var reads = 0;
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>())
-                 .Callback((_, _, _) =>
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>())
+                 .ReturnsAsync((_, _, _) =>
                   {
                       _ = Interlocked.Increment(ref reads);
                       return ValueTask.FromResult<NodeCacheEntry<string>?>(Small);
                   });
-        _ = inner.Setups.SetEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
-        var cache = Create(inner.Instance(), CreateAccounting(), null);
+        _ = inner.SetEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
+        var cache = Create(inner.Object, CreateAccounting(), null);
 
         await cache.SetEntryAsync("op-1", CacheName, Key, new NodeCacheEntry<string> { Value = new string('x', 4096), Version = 1 }, cancellationToken);
 
@@ -179,9 +181,9 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     public async Task UnrecordedAddAnsweredHere(CancellationToken cancellationToken)
     {
         var entry = new NodeCacheEntry<string> { Value = "v", Version = 1 };
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(entry));
-        var cache = Create(inner.Instance(), CreateAccounting(), static (_, _, _) => false);
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(entry));
+        var cache = Create(inner.Object, CreateAccounting(), static (_, _, _) => false);
 
         // The inner double has no add set up: a call would throw.
         var added = await cache.TryAddEntryAsync("op-2", CacheName, Key, entry, cancellationToken);
@@ -195,10 +197,10 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     public async Task UnrecordedSetRefusedUnderPressure(CancellationToken cancellationToken)
     {
         var entry = new NodeCacheEntry<string> { Value = "v", Version = 1 };
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
         var accounting = CreateAccounting();
-        var cache = Create(inner.Instance(), accounting, static (_, _, _) => false, 1);
+        var cache = Create(inner.Object, accounting, static (_, _, _) => false, 1);
 
         _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-2", CacheName, Key, entry, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
@@ -211,10 +213,10 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     public async Task FencedReadThatFindsKeyAbsentAdmitsAdd(CancellationToken cancellationToken)
     {
         var entry = new NodeCacheEntry<string> { Value = "v", Version = 1 };
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(entry));
-        _ = inner.Setups.TryAddEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
-        var instance = inner.Instance();
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(entry));
+        _ = inner.TryAddEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(true));
+        var instance = inner.Object;
         var admitted = await Create(instance, CreateAccounting(), static (_, _, _) => false, 10_000_000_000, FencedAbsentAsync)
            .TryAddEntryAsync("op-1", CacheName, Key, entry, cancellationToken);
         var accounting = CreateAccounting();
@@ -231,10 +233,10 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     [Test]
     public async Task FencedReadThatFindsKeyAdmitsUpdate(CancellationToken cancellationToken)
     {
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
-        _ = inner.Setups.UpdateAsync("op-1", CacheName, Key, "v2", Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
-        var cache = Create(inner.Instance(), CreateAccounting(), static (_, _, _) => false, 10_000_000_000, static (_, _, _) => ValueTask.FromResult(new NodeCacheEntryPeek<string>(Small, false)));
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
+        _ = inner.UpdateAsync("op-1", CacheName, Key, "v2", Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(true));
+        var cache = Create(inner.Object, CreateAccounting(), static (_, _, _) => false, 10_000_000_000, static (_, _, _) => ValueTask.FromResult(new NodeCacheEntryPeek<string>(Small, false)));
 
         var updated = await cache.UpdateAsync("op-1", CacheName, Key, "v2", cancellationToken);
 
@@ -247,10 +249,10 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     public async Task RecordedRetrySkipsFence(CancellationToken cancellationToken)
     {
         var entry = new NodeCacheEntry<string> { Value = "v", Version = 1 };
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(entry));
-        _ = inner.Setups.TryAddEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
-        var cache = Create(inner.Instance(), CreateAccounting(), static (_, _, _) => true, 10_000_000_000, static (_, _, _) => throw new InvalidOperationException("The fence must not run."));
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(entry));
+        _ = inner.TryAddEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(true));
+        var cache = Create(inner.Object, CreateAccounting(), static (_, _, _) => true, 10_000_000_000, static (_, _, _) => throw new InvalidOperationException("The fence must not run."));
 
         var added = await cache.TryAddEntryAsync("op-1", CacheName, Key, entry, cancellationToken);
 
@@ -263,10 +265,10 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     public async Task FenceRefusalWritesNothing(CancellationToken cancellationToken)
     {
         var entry = new NodeCacheEntry<string> { Value = "v", Version = 1 };
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(entry));
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(entry));
         var cache = Create(
-            inner.Instance(),
+            inner.Object,
             CreateAccounting(),
             static (_, _, _) => false,
             10_000_000_000,

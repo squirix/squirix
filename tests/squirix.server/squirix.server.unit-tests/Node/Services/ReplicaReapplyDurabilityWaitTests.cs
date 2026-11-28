@@ -2,20 +2,20 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Logging;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -82,13 +82,13 @@ public sealed class ReplicaReapplyDurabilityWaitTests : IsolatedStorageTestBase
         var memory = new StubCache();
         var journaled = CreateJournaledCache(journal, memory);
         var failing = 1;
-        var flaky = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
-        _ = flaky.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
-                 .Callback((operationId, cacheName, key, entry, token) => Interlocked.Exchange(ref failing, 0) == 1
+        var flaky = TestDoubles.CreateCacheWithEntryWriteOverloads<StoredValue>();
+        _ = flaky.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
+                 .ReturnsAsync((operationId, cacheName, key, entry, token) => Interlocked.Exchange(ref failing, 0) == 1
                       ? ValueTask.FromException(new IOException("Injected memory apply failure after the majority."))
                       : journaled.SetEntryAsync(operationId, cacheName, key, entry, token));
         await using var registry = await OpenRegistryAsync(GroupDir(), cancellationToken);
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), flaky.Instance(), NullLogger<ReplicaGroupCommitter>.Instance);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), flaky.Object, NullLogger<ReplicaGroupCommitter>.Instance);
         var first = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         journal.Writer.Flush.Arm();
         bool flushEntered;

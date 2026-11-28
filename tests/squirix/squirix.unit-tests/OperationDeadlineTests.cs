@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Internal.Cluster.Reliability;
@@ -16,6 +15,9 @@ using Squirix.Transport.Wire.Codec;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.UnitTests;
 
@@ -280,11 +282,11 @@ public sealed class OperationDeadlineTests
             SingleEndpoint = singleEndpoint;
             _firstClient = new BinaryCacheClient(new Uri("https://localhost"), null, null, FirstTransport.InvokeAsync);
             _secondClient = new BinaryCacheClient(new Uri("https://localhost"), null, null, SecondTransport.InvokeAsync);
-            var expectations = new IClientPoolCreateExpectations();
-            _ = expectations.Setups.ForNode(Arg.Any<string>()).Callback(nodeId => new NodeClient(string.Equals(nodeId, "node-0", StringComparison.Ordinal) ? _firstClient : _secondClient, _policy));
-            _ = expectations.Setups.BeginDrain();
-            _ = expectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
-            _pool = expectations.Instance();
+            var expectations = IClientPool.Mock(MockBehavior.Strict);
+            _ = expectations.ForNode(Arg.Any<string>()).Returns(nodeId => new NodeClient(string.Equals(nodeId, "node-0", StringComparison.Ordinal) ? _firstClient : _secondClient, _policy));
+            _ = expectations.BeginDrain();
+            _ = expectations.DisposeAsync().ReturnsAsync(ValueTask.CompletedTask);
+            _pool = expectations.Object;
             Cache = CreateCache(deadline);
         }
 

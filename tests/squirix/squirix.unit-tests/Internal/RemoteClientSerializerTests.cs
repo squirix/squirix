@@ -2,14 +2,17 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.UnitTests.Internal;
 
@@ -21,9 +24,9 @@ public sealed class RemoteClientSerializerTests
     [Test]
     public void BypassesUnhandledExceptionFilter()
     {
-        var innerExpectations = new ISquirixSerializerCreateExpectations();
-        _ = innerExpectations.Setups.SerializeToUtf8Bytes(Arg.Any<string?>()).Throws<InvalidCastException>();
-        var serializer = RemoteClientSessionFactory.CreateSerializer(innerExpectations.Instance());
+        var innerExpectations = ISquirixSerializer.Mock(MockBehavior.Strict);
+        _ = innerExpectations.SerializeToUtf8Bytes<string>(Arg.Any<string?>(), default(JsonTypeInfo<string>?)).Throws<InvalidCastException>();
+        var serializer = RemoteClientSessionFactory.CreateSerializer(innerExpectations.Object);
         _ = ExceptionAssert.For<InvalidCastException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
     }
 
@@ -76,9 +79,9 @@ public sealed class RemoteClientSerializerTests
     [Test]
     public void RethrowsNotSupportedFailures()
     {
-        var innerExpectations = new ISquirixSerializerCreateExpectations();
-        _ = innerExpectations.Setups.SerializeToUtf8Bytes(Arg.Any<string?>()).Throws<NotSupportedException>();
-        var serializer = RemoteClientSessionFactory.CreateSerializer(innerExpectations.Instance());
+        var innerExpectations = ISquirixSerializer.Mock(MockBehavior.Strict);
+        _ = innerExpectations.SerializeToUtf8Bytes<string>(Arg.Any<string?>(), default(JsonTypeInfo<string>?)).Throws<NotSupportedException>();
+        var serializer = RemoteClientSessionFactory.CreateSerializer(innerExpectations.Object);
         _ = ExceptionAssert.For<NotSupportedException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
     }
 }

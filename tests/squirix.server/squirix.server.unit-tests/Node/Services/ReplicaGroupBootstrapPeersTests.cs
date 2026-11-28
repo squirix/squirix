@@ -13,6 +13,7 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -25,7 +26,7 @@ public sealed class ReplicaGroupBootstrapPeersTests : ServerUnitTestBase
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
     /// <summary>The committers of a node that leads no group, which the service has nothing to wake in.</summary>
-    private static readonly ReplicaGroupCommitters NoLedGroups = new([], "n0", new INodeLocatorCreateExpectations().Instance(), TimeProvider.System);
+    private static readonly ReplicaGroupCommitters NoLedGroups = new([], "n0", INodeLocator.Mock(MockBehavior.Strict).Object, TimeProvider.System);
 
     /// <summary>
     /// Two owners that both wait for a third member that is down call each other once: a call of a peer that is not the member waited for wakes

@@ -3,7 +3,6 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
@@ -12,6 +11,9 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -320,10 +322,10 @@ public sealed class ReplicaReadinessProbeTests
 
         internal ScriptedFollowers()
         {
-            var expectations = new IReplicaRpcGatewayCreateExpectations();
-            _ = expectations.Setups.AppendEntriesAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<FollowerBatch>(), Arg.Any<CancellationToken>())
-                            .Callback((nodeId, _, _, cancellationToken) => AppendAsync(nodeId, cancellationToken));
-            Gateway = expectations.Instance();
+            var expectations = IReplicaRpcGateway.Mock(MockBehavior.Strict);
+            _ = expectations.AppendEntriesAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<FollowerBatch>(), Arg.Any<CancellationToken>())
+                            .ReturnsAsync((nodeId, _, _, cancellationToken) => AppendAsync(nodeId, cancellationToken));
+            Gateway = expectations.Object;
         }
 
         internal IReplicaRpcGateway Gateway { get; }

@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Logging;
@@ -20,6 +19,9 @@ using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.LedGroupsTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
@@ -506,9 +508,9 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
 
     private static IJournalDurabilityCoordinator DurableJournal()
     {
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
-        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
-        return durability.Instance();
+        var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
+        _ = durability.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
+        return durability.Object;
     }
 
     private static IFollowerLog OwnerLog(ReplicaGroupRegistry registry) =>

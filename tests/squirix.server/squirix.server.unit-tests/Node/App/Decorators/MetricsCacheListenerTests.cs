@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -15,6 +14,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
@@ -96,10 +98,10 @@ public sealed class MetricsCacheListenerTests : ServerUnitTestBase
         using var meter = new Meter("cache-listener-error");
         var results = new List<string>();
         var failure = new TimeoutException("inner deadline");
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.SetEntryAsync("op", "cache", "key", Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                 .Callback((_, _, _, _, _) => ValueTask.FromException(failure));
-        var cache = new MetricsCacheDecorator<string>(inner.Instance(), new CacheMetrics(meter));
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.SetEntryAsync("op", "cache", "key", Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                 .ReturnsAsync((_, _, _, _, _) => ValueTask.FromException(failure));
+        var cache = new MetricsCacheDecorator<string>(inner.Object, new CacheMetrics(meter));
         using var listener = new MeterListener
         {
             InstrumentPublished = (instrument, current) =>
@@ -126,9 +128,9 @@ public sealed class MetricsCacheListenerTests : ServerUnitTestBase
     {
         using var meter = new Meter("cache-listener-pending");
         var completion = new TaskCompletionSource<NodeCacheValueResult<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetValueAsync("cache", "key", Arg.Any<CancellationToken>()).ReturnValue(new ValueTask<NodeCacheValueResult<string>>(completion.Task));
-        var cache = new MetricsCacheDecorator<string>(inner.Instance(), new CacheMetrics(meter));
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetValueAsync("cache", "key", Arg.Any<CancellationToken>()).ReturnsAsync(new ValueTask<NodeCacheValueResult<string>>(completion.Task));
+        var cache = new MetricsCacheDecorator<string>(inner.Object, new CacheMetrics(meter));
         var counts = new List<long>();
         using var listener = new MeterListener
         {

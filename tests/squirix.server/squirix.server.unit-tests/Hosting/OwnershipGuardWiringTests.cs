@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -17,6 +16,9 @@ using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Hosting;
 
@@ -43,10 +45,10 @@ public sealed class OwnershipGuardWiringTests : ServerUnitTestBase
     [Test]
     public async Task ElectedTableWiresLeaderHints(CancellationToken cancellationToken)
     {
-        var leaders = new IGroupLeaderTableCreateExpectations();
-        _ = leaders.Setups.Read(Remote).ReturnValue(new GroupLeaderView(true, false, false, 6, 6, new LeaderRoute(Remote, 6)));
+        var leaders = IGroupLeaderTable.Mock(MockBehavior.Strict);
+        _ = leaders.Read(Remote).Returns(new GroupLeaderView(true, false, false, 6, 6, new LeaderRoute(Remote, 6)));
 
-        var failure = await RefuseAsync(leaders.Instance(), cancellationToken);
+        var failure = await RefuseAsync(leaders.Object, cancellationToken);
 
         _ = await Assert.That(failure.FindTrailer("squirix-error-code")).IsEqualTo("stale-owner");
         _ = await Assert.That((failure.FindTrailer("squirix-leader-node-id"), failure.FindTrailer("squirix-leader-term"))).IsEqualTo((Remote, "6"));
@@ -58,15 +60,15 @@ public sealed class OwnershipGuardWiringTests : ServerUnitTestBase
     public async Task SolePeerKeepsLocalAdmission(CancellationToken cancellationToken)
     {
         var cluster = new TopologyOptions(new ServerPeer { NodeId = Self, Uri = new Uri("https://localhost:6001") }) { NodeId = Self };
-        var gate = new IBackpressureGateCreateExpectations();
-        _ = gate.Setups.AcquireAsync(Arg.Any<string>(), Arg.Any<string>(), "client", cancellationToken)
-                .ReturnValue(ValueTask.FromResult((Decision.Accepted(), Lease.Empty)));
-        var clients = new IBackpressureClientIdResolverCreateExpectations();
-        _ = clients.Setups.Resolve().ReturnValue("client");
+        var gate = IBackpressureGate.Mock(MockBehavior.Strict);
+        _ = gate.AcquireAsync(Arg.Any<string>(), Arg.Any<string>(), "client", cancellationToken)
+                .ReturnsAsync(ValueTask.FromResult((Decision.Accepted(), Lease.Empty)));
+        var clients = IBackpressureClientIdResolver.Mock(MockBehavior.Strict);
+        _ = clients.Resolve().Returns("client");
         var entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v") };
-        var store = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
-        _ = store.Setups.SetEntryAsync("op", "c", "k", entry, cancellationToken).ReturnValue(ValueTask.CompletedTask);
-        var admission = new BackpressureCacheDecorator<StoredValue>(store.Instance(), gate.Instance(), clients.Instance());
+        var store = ILogicalNamespacedCache<StoredValue>.Mock(MockBehavior.Strict);
+        _ = store.SetEntryAsync("op", "c", "k", entry, cancellationToken).ReturnsAsync(ValueTask.CompletedTask);
+        var admission = new BackpressureCacheDecorator<StoredValue>(store.Object, gate.Object, clients.Object);
         var services = new NodeServices().AddSquirixClusterLocator(cluster).AddSquirixCachePipeline()
                                          .Use(FeatureState.Disabled)
                                          .Use(admission);
@@ -74,21 +76,21 @@ public sealed class OwnershipGuardWiringTests : ServerUnitTestBase
 
         await provider.Require<ValidationCacheDecorator<StoredValue>>().SetEntryAsync("op", "c", "k", entry, cancellationToken);
 
-        store.Verify();
-        gate.Verify();
+        store.SetEntryAsync("op", "c", "k", entry, cancellationToken).WasCalled(Times.Once);
+        gate.AcquireAsync(Arg.Any<string>(), Arg.Any<string>(), "client", cancellationToken).WasCalled(Times.Once);
     }
 
     private static async Task<ServerCallException> RefuseAsync(IGroupLeaderTable leaders, CancellationToken cancellationToken)
     {
-        var locator = new INodeLocatorCreateExpectations();
-        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(Remote);
+        var locator = INodeLocator.Mock(MockBehavior.Strict);
+        _ = locator.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns(Remote);
         var below = new BackpressureCacheDecorator<StoredValue>(
-            new ILogicalNamespacedCacheCreateExpectations<StoredValue>().Instance(),
-            new IBackpressureGateCreateExpectations().Instance(),
-            new IBackpressureClientIdResolverCreateExpectations().Instance());
+            ILogicalNamespacedCache<StoredValue>.Mock(MockBehavior.Strict).Object,
+            IBackpressureGate.Mock(MockBehavior.Strict).Object,
+            IBackpressureClientIdResolver.Mock(MockBehavior.Strict).Object);
         var services = new NodeServices().AddSquirixCachePipeline()
                                               .Use(new TopologyOptions(new ServerPeer { NodeId = Self, Uri = new Uri("https://localhost:6001") }) { ClusterId = "c", NodeId = Self, Uri = new Uri("https://localhost:6001") })
-                                              .Use(locator.Instance())
+                                              .Use(locator.Object)
                                               .Use(leaders)
                                               .Use(below);
         await using var provider = new NodeProvider(services);

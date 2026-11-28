@@ -593,7 +593,7 @@ select new { n, RealTypeCount = realTypeCount, Debt = 5.ToMinutes().ToDebt(), Se
 // <Id>ND1409:AvoidMutuallyDependentTypes</Id>
 // ND1409 squirix override: scope to JustMyCode. Stock rule matches on
 // Application.* and ignores notmycode, so Roslyn source-generator outputs
-// (Rocks *_Rock_Create.g.cs mocks in obj/, generated wire *.g.cs) and test
+// (including generated wire messages and mocks) and test
 // assemblies surface as architecture debt. Method-level mutual usage in both
 // directions mirrors the stock rule (t1MethodsUsingT2 / t2MethodsUsingT1).
 // Two legitimate idioms are excluded: nested types (implementation details reviewed
@@ -1810,16 +1810,13 @@ where f.ParentType != null &&
       f.ParentType.FullNameLike("Squirix.Transport.Wire*")
 select f]]></Query><Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source types from JustMyCode</Name>
 // Exclude generated wire messages, Roslyn outputs, and common generated folders.
-// Examples: CacheMessages.g.cs, ReplicaMessages.g.cs, **/*.g.cs, **/Generated/**,
-// obj/**/Rocks.Analysis/**/*_Rock_*.g.cs (Rocks mocks).
+// Examples: CacheMessages.g.cs, ReplicaMessages.g.cs, **/*.g.cs, **/Generated/**.
 // Shared path predicate is duplicated per element kind — NDepend notmycode requires Types, Methods, and Fields separately.
 notmycode
 let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
     filePath.ToLower().Replace('/', '\\').EndsWith(".g.cs") ||
     filePath.ToLower().Replace('/', '\\').Contains("\\obj\\") ||
-    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\") ||
-    filePath.ToLower().Replace('/', '\\').Contains("rocks.analysis") ||
-    filePath.ToLower().Replace('/', '\\').Contains("_rock_"))
+    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\"))
 from t in Types
 where t.SourceFileDeclAvailable &&
       t.SourceDecls.Any(s => IsGeneratedSourceFile(s.SourceFile.FilePath.ToString()))
@@ -1828,9 +1825,7 @@ notmycode
 let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
     filePath.ToLower().Replace('/', '\\').EndsWith(".g.cs") ||
     filePath.ToLower().Replace('/', '\\').Contains("\\obj\\") ||
-    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\") ||
-    filePath.ToLower().Replace('/', '\\').Contains("rocks.analysis") ||
-    filePath.ToLower().Replace('/', '\\').Contains("_rock_"))
+    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\"))
 from m in Methods
 where m.SourceFileDeclAvailable &&
       m.SourceDecls.Any(s => IsGeneratedSourceFile(s.SourceFile.FilePath.ToString()))
@@ -1839,9 +1834,7 @@ notmycode
 let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
     filePath.ToLower().Replace('/', '\\').EndsWith(".g.cs") ||
     filePath.ToLower().Replace('/', '\\').Contains("\\obj\\") ||
-    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\") ||
-    filePath.ToLower().Replace('/', '\\').Contains("rocks.analysis") ||
-    filePath.ToLower().Replace('/', '\\').Contains("_rock_"))
+    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\"))
 from f in Fields
 where f.SourceFileDeclAvailable &&
       f.SourceDecls.Any(s => IsGeneratedSourceFile(s.SourceFile.FilePath.ToString()))

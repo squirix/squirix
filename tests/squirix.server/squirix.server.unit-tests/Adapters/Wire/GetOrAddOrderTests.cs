@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Cluster;
@@ -15,6 +14,9 @@ using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Adapters.Wire;
 
@@ -30,11 +32,11 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
     [Test]
     public async Task AbsentKeyReturnsAddedResult()
     {
-        var api = new ICacheApiCreateExpectations<StoredValue>();
-        _ = api.Setups.AddOrGetAsync(string.Empty, "k", Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
-               .ReturnValue(ValueTask.FromResult(new NodeCacheAddOrGetResult<StoredValue>(true, default)));
+        var api = ICacheApi<StoredValue>.Mock(MockBehavior.Strict);
+        _ = api.AddOrGetAsync(string.Empty, "k", Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
+               .ReturnsAsync(ValueTask.FromResult(new NodeCacheAddOrGetResult<StoredValue>(true, default)));
 
-        var response = await CreateAdapter(api.Instance()).Mutations.GetOrAddAsync(CreateRequest(), CancellationToken.None);
+        var response = await CreateAdapter(api.Object).Mutations.GetOrAddAsync(CreateRequest(), CancellationToken.None);
 
         _ = await Assert.That(response.Added).IsTrue();
         _ = await Assert.That(response.Found).IsTrue();
@@ -44,11 +46,11 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
     [Test]
     public async Task PresentKeyReturnsItsValue()
     {
-        var api = new ICacheApiCreateExpectations<StoredValue>();
-        _ = api.Setups.AddOrGetAsync(string.Empty, "k", Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
-               .ReturnValue(ValueTask.FromResult(new NodeCacheAddOrGetResult<StoredValue>(false, new NodeCacheValueResult<StoredValue>(true, StoredValue.FromText("existing")))));
+        var api = ICacheApi<StoredValue>.Mock(MockBehavior.Strict);
+        _ = api.AddOrGetAsync(string.Empty, "k", Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
+               .ReturnsAsync(ValueTask.FromResult(new NodeCacheAddOrGetResult<StoredValue>(false, new NodeCacheValueResult<StoredValue>(true, StoredValue.FromText("existing")))));
 
-        var response = await CreateAdapter(api.Instance()).Mutations.GetOrAddAsync(CreateRequest(), CancellationToken.None);
+        var response = await CreateAdapter(api.Object).Mutations.GetOrAddAsync(CreateRequest(), CancellationToken.None);
 
         _ = await Assert.That(response.Added).IsFalse();
         _ = await Assert.That(response.Found).IsTrue();
@@ -68,22 +70,22 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
 
     private static RoutedCacheOperations<StoredValue> CreateAdapter(ICacheApi<StoredValue> api)
     {
-        var operations = new IInboundEndpointCacheOperationsCreateExpectations<StoredValue>();
-        _ = operations.Setups.ForCache("c").ReturnValue(api);
-        var ownership = new INodeOwnershipResolverCreateExpectations();
-        _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
-        _ = ownership.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(Self);
-        var invocation = new IRemoteInvocationStateCreateExpectations();
-        _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(false);
+        var operations = IInboundEndpointCacheOperations<StoredValue>.Mock(MockBehavior.Strict);
+        _ = operations.ForCache("c").Returns(api);
+        var ownership = INodeOwnershipResolver.Mock(MockBehavior.Strict);
+        _ = ownership.SelfNodeId.Returns(Self);
+        _ = ownership.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns(Self);
+        var invocation = IRemoteInvocationState.Mock(MockBehavior.Strict);
+        _ = invocation.IsInternalOwnerInvocation.Returns(false);
 
         // Nothing is forwarded: the pool and the backpressure gate have no setups.
         return new RoutedCacheOperations<StoredValue>(
-            operations.Instance(),
-            OwnerRouters.Static(ownership.Instance(), invocation.Instance(), Self),
+            operations.Object,
+            OwnerRouters.Static(ownership.Object, invocation.Object, Self),
             new OwnerRpcForwarder(
-                new IServerClientPoolCreateExpectations().Instance(),
-                new IBackpressureGateCreateExpectations().Instance(),
-                new IBackpressureClientIdResolverCreateExpectations().Instance(),
+                IServerClientPool.Mock(MockBehavior.Strict).Object,
+                IBackpressureGate.Mock(MockBehavior.Strict).Object,
+                IBackpressureClientIdResolver.Mock(MockBehavior.Strict).Object,
                 RingAgreements.Create()),
             false,
             TimeProvider.System);

@@ -18,7 +18,7 @@ public sealed class PressureOptionsResolverTests
     [Test]
     public async Task ResolveDefaultsMaxBytesToRamCap()
     {
-        var resolved = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), RocksDoubles.CreateMemoryBudget(1_000_000));
+        var resolved = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), TestDoubles.CreateMemoryBudget(1_000_000));
 
         _ = await Assert.That(resolved.MaxEstimatedCacheBytes).IsEqualTo(800_000L);
         _ = await Assert.That(resolved.MemoryAccountingEnabled).IsFalse();
@@ -28,7 +28,7 @@ public sealed class PressureOptionsResolverTests
     [Test]
     public async Task ResolvePreservesConfiguredMaxBelowCap()
     {
-        var resolved = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = 500_000, MemoryAccountingEnabled = true }, RocksDoubles.CreateMemoryBudget(1_000_000));
+        var resolved = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = 500_000, MemoryAccountingEnabled = true }, TestDoubles.CreateMemoryBudget(1_000_000));
 
         _ = await Assert.That(resolved.MaxEstimatedCacheBytes).IsEqualTo(500_000L);
         _ = await Assert.That(resolved.MemoryAccountingEnabled).IsTrue();
@@ -40,7 +40,7 @@ public sealed class PressureOptionsResolverTests
     {
         var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(
             900_000L,
-            static value => _ = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = value }, RocksDoubles.CreateMemoryBudget(1_000_000)));
+            static value => _ = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = value }, TestDoubles.CreateMemoryBudget(1_000_000)));
 
         _ = await Assert.That(ex.Message).Contains("exceeds the 80% RAM cap", StringComparison.Ordinal);
     }
@@ -51,7 +51,7 @@ public sealed class PressureOptionsResolverTests
     {
         var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(
             0L,
-            static value => _ = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = value }, RocksDoubles.CreateMemoryBudget(1_000_000)));
+            static value => _ = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = value }, TestDoubles.CreateMemoryBudget(1_000_000)));
 
         _ = await Assert.That(ex.Message).Contains("must be positive", StringComparison.Ordinal);
     }
@@ -62,7 +62,7 @@ public sealed class PressureOptionsResolverTests
     {
         var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(
             0L,
-            static value => _ = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), RocksDoubles.CreateMemoryBudget(value)));
+            static value => _ = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), TestDoubles.CreateMemoryBudget(value)));
 
         _ = await Assert.That(ex.Message).Contains("available process memory is zero", StringComparison.Ordinal);
     }

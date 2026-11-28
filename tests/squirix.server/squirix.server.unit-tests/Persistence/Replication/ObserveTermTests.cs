@@ -13,6 +13,8 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -77,19 +79,19 @@ public sealed class ObserveTermTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-observe-term-crash");
         var armed = false;
-        var faults = new IFollowerLogFaultHooksCreateExpectations();
-        _ = faults.Setups.OnFrameWritten();
-        _ = faults.Setups.OnFramesScheduling();
-        _ = faults.Setups.OnFlushed();
-        _ = faults.Setups.OnCommitAdvanced();
-        _ = faults.Setups.OnBeforeMemoryApply();
-        _ = faults.Setups.OnMetaPublishing().Callback(() =>
+        var faults = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+        _ = faults.OnFrameWritten();
+        _ = faults.OnFramesScheduling();
+        _ = faults.OnFlushed();
+        _ = faults.OnCommitAdvanced();
+        _ = faults.OnBeforeMemoryApply();
+        _ = faults.OnMetaPublishing().Callback(() =>
         {
             if (armed)
                 throw new IOException("simulated crash before the metadata is published.");
         });
 
-        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System))
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Object, TimeProvider.System))
         {
             await log.OpenSeededAsync(cancellationToken);
             _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), cancellationToken);
@@ -136,13 +138,13 @@ public sealed class ObserveTermTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-observe-term-cancel");
         var armed = false;
-        var faults = new IFollowerLogFaultHooksCreateExpectations();
-        _ = faults.Setups.OnFrameWritten();
-        _ = faults.Setups.OnFramesScheduling();
-        _ = faults.Setups.OnFlushed();
-        _ = faults.Setups.OnCommitAdvanced();
-        _ = faults.Setups.OnBeforeMemoryApply();
-        _ = faults.Setups.OnMetaPublishing().Callback(() =>
+        var faults = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+        _ = faults.OnFrameWritten();
+        _ = faults.OnFramesScheduling();
+        _ = faults.OnFlushed();
+        _ = faults.OnCommitAdvanced();
+        _ = faults.OnBeforeMemoryApply();
+        _ = faults.OnMetaPublishing().Callback(() =>
         {
             if (!armed)
                 return;
@@ -151,7 +153,7 @@ public sealed class ObserveTermTests : ServerUnitTestBase
             throw new OperationCanceledException("simulated cancellation during the metadata write.");
         });
 
-        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System);
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Object, TimeProvider.System);
         await log.OpenSeededAsync(cancellationToken);
         _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), cancellationToken);
         armed = true;

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
@@ -13,6 +12,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaPipelineTestKit;
 
@@ -266,14 +268,14 @@ public sealed class ReplicaGroupCommitRunTests : IsolatedStorageTestBase
             senders[i] = new ReplicaFollowerSender(gateway, $"n{i + 2}", in header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, Limits = limits };
         }
 
-        var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.AppendLeaderAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<Action>(), Arg.Any<CancellationToken>())
-               .Callback((request, _, _) => Task.FromResult(answer(request)));
-        _ = log.Setups.Readiness.Gets().ReturnValue(FollowerLogReadiness.Ready);
+        var log = IFollowerLog.Mock(MockBehavior.Strict);
+        _ = log.AppendLeaderAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<Action>(), Arg.Any<CancellationToken>())
+               .ReturnsAsync((request, _, _) => Task.FromResult(answer(request)));
+        _ = log.Readiness.Returns(FollowerLogReadiness.Ready);
         var status = default(FollowerLogStatus);
         var lagging = new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance);
         var applier = new ReplicaGroupApplier(new StubCache(), NullLogger.Instance);
-        return new ReplicaGroupCommitPipeline(applier, log.Instance(), senders, (GroupId, 0), lagging, in status, 1) { AllowEarlyReplication = true };
+        return new ReplicaGroupCommitPipeline(applier, log.Object, senders, (GroupId, 0), lagging, in status, 1) { AllowEarlyReplication = true };
     }
 
     private static async Task<string> AcknowledgedIndexesAsync(
@@ -314,8 +316,8 @@ public sealed class ReplicaGroupCommitRunTests : IsolatedStorageTestBase
 
     private static ReplicaGroupCommitPipeline CreateLoggedPipeline(List<FollowerLogAppendRequest> requests)
     {
-        var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.AppendLeaderAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<Action>(), Arg.Any<CancellationToken>()).Callback((request, _, _) =>
+        var log = IFollowerLog.Mock(MockBehavior.Strict);
+        _ = log.AppendLeaderAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<Action>(), Arg.Any<CancellationToken>()).ReturnsAsync((request, _, _) =>
         {
             requests.Add(request);
             return Task.FromResult(new FollowerLogAppendResult(true, string.Empty, request.PrevLogIndex + ulong.CreateChecked(request.Entries.Length), 1UL));
@@ -323,6 +325,6 @@ public sealed class ReplicaGroupCommitRunTests : IsolatedStorageTestBase
         var status = default(FollowerLogStatus);
         var lagging = new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance);
         var applier = new ReplicaGroupApplier(new StubCache(), NullLogger.Instance);
-        return new ReplicaGroupCommitPipeline(applier, log.Instance(), [], (GroupId, 0), lagging, in status, 1) { AllowEarlyReplication = true };
+        return new ReplicaGroupCommitPipeline(applier, log.Object, [], (GroupId, 0), lagging, in status, 1) { AllowEarlyReplication = true };
     }
 }

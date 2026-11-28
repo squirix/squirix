@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Attributes;
@@ -20,6 +19,9 @@ using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Adapters.Wire;
 
@@ -106,17 +108,17 @@ public sealed class OwnerRouterTests
         var self = new ServerPeer { NodeId = Self, Uri = new Uri("https://localhost:6001") };
         var remote = new ServerPeer { NodeId = Remote, Uri = new Uri("https://localhost:6002") };
         var topology = new TopologyOptions(singlePeer ? [self] : [self, remote]) { NodeId = Self };
-        var ownership = new INodeOwnershipResolverCreateExpectations();
+        var ownership = INodeOwnershipResolver.Mock(MockBehavior.Strict);
         if (!singlePeer)
         {
-            _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
-            _ = ownership.Setups.GetOwner("cache", "key").ReturnValue(Remote);
+            _ = ownership.SelfNodeId.Returns(Self);
+            _ = ownership.GetOwner("cache", "key").Returns(Remote);
         }
 
         await using var provider = new NodeProvider(new NodeServices().AddSquirixClusterLocator(topology));
         var context = new BinaryRequestAccessor { Current = new BinaryRequestContext { Path = "/cache/Get" } };
         var router = new OwnerRouter(
-            ownership.Instance(),
+            ownership.Object,
             CreateInvocationState(false),
             RingAgreements.Create(),
             provider.Require<IGroupLeaderTable>(),
@@ -132,7 +134,11 @@ public sealed class OwnerRouterTests
 
         _ = await Assert.That(result).IsEqualTo(singlePeer ? RouterCalls.Local : Remote);
         _ = await Assert.That(context.FindGroup("cache", "key")).IsEqualTo(singlePeer ? Self : Remote);
-        ownership.Verify();
+        if (!singlePeer)
+        {
+            ownership.SelfNodeId.WasCalled(Times.Once);
+            ownership.GetOwner("cache", "key").WasCalled(Times.Once);
+        }
     }
 
     /// <summary>A node fenced by a ring mismatch refuses with the ring-fenced marker before it resolves any owner.</summary>
@@ -147,7 +153,7 @@ public sealed class OwnerRouterTests
 
         // The resolver has no setups: resolving an owner would fail the test with a different exception.
         var router = new OwnerRouter(
-            new INodeOwnershipResolverCreateExpectations().Instance(),
+            INodeOwnershipResolver.Mock(MockBehavior.Strict).Object,
             CreateInvocationState(false),
             agreement,
             new StaticLeaderTable(Self, soleNode),
@@ -173,11 +179,11 @@ public sealed class OwnerRouterTests
     [Arguments("cache", "")]
     public async Task InvalidNameOrKeyRunsLocally(string cacheName, string key)
     {
-        var ownership = new INodeOwnershipResolverCreateExpectations();
-        _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
+        var ownership = INodeOwnershipResolver.Mock(MockBehavior.Strict);
+        _ = ownership.SelfNodeId.Returns(Self);
         var calls = new RouterCalls();
 
-        _ = await calls.RunAsync(OwnerRouters.Static(ownership.Instance(), CreateInvocationState(true), Self), cacheName, key);
+        _ = await calls.RunAsync(OwnerRouters.Static(ownership.Object, CreateInvocationState(true), Self), cacheName, key);
 
         _ = await Assert.That(string.Join(',', calls.Targets)).IsEqualTo(RouterCalls.Local);
     }
@@ -188,11 +194,11 @@ public sealed class OwnerRouterTests
     public async Task RoutedGroupUsesCurrentAuthority(CancellationToken cancellationToken)
     {
         var request = new BinaryRequestAccessor { Current = new BinaryRequestContext { Path = "/cache/Get" } };
-        var ownership = new INodeOwnershipResolverCreateExpectations();
-        _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
-        _ = ownership.Setups.GetOwner("c", "k").ReturnValue(Self);
+        var ownership = INodeOwnershipResolver.Mock(MockBehavior.Strict);
+        _ = ownership.SelfNodeId.Returns(Self);
+        _ = ownership.GetOwner("c", "k").Returns(Self);
         var router = new OwnerRouter(
-            ownership.Instance(),
+            ownership.Object,
             CreateInvocationState(false),
             RingAgreements.Create(),
             new StaticLeaderTable(Self),
@@ -204,17 +210,17 @@ public sealed class OwnerRouterTests
         };
 
         var view = new StrongBox<GroupLeaderView>(new GroupLeaderView(true, true, false, 1, 1, new LeaderRoute(Self, 1)));
-        var leaders = new IGroupLeaderTableCreateExpectations();
-        _ = leaders.Setups.Read(Self).Callback(_ => view.Value).ExpectedCallCount(2);
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetValueAsync("c", "k", cancellationToken)
-                 .ReturnValue(ValueTask.FromResult(new NodeCacheValueResult<string>(false, null)));
+        var leaders = IGroupLeaderTable.Mock(MockBehavior.Strict);
+        _ = leaders.Read(Self).Returns(_ => view.Value);
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetValueAsync("c", "k", cancellationToken)
+                 .ReturnsAsync(ValueTask.FromResult(new NodeCacheValueResult<string>(false, null)));
         var guard = new OwnershipGuardCacheDecorator<string>(
             Self,
-            new INodeLocatorCreateExpectations().Instance(),
-            leaders.Instance(),
+            INodeLocator.Mock(MockBehavior.Strict).Object,
+            leaders.Object,
             true,
-            inner.Instance(),
+            inner.Object,
             request);
 
         _ = await router.ExecuteAsync(
@@ -233,9 +239,10 @@ public sealed class OwnerRouterTests
             cancellationToken);
         _ = await Assert.That(failure.FindTrailer("squirix-leader-node-id")).IsEqualTo(Remote);
         _ = await Assert.That(failure.FindTrailer("squirix-leader-term")).IsEqualTo("2");
-        inner.Verify();
-        leaders.Verify();
-        ownership.Verify();
+        inner.GetValueAsync("c", "k", cancellationToken).WasCalled(Times.Once);
+        leaders.Read(Self).WasCalled(Times.Exactly(2));
+        ownership.SelfNodeId.WasCalled(Times.Once);
+        ownership.GetOwner("c", "k").WasCalled(Times.Once);
 
         static async Task ReadAsync(OwnershipGuardCacheDecorator<string> cache, CancellationToken token)
         {
@@ -245,17 +252,17 @@ public sealed class OwnerRouterTests
 
     private static IRemoteInvocationState CreateInvocationState(bool internalCall)
     {
-        var expectations = new IRemoteInvocationStateCreateExpectations();
-        _ = expectations.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(internalCall);
-        return expectations.Instance();
+        var expectations = IRemoteInvocationState.Mock(MockBehavior.Strict);
+        _ = expectations.IsInternalOwnerInvocation.Returns(internalCall);
+        return expectations.Object;
     }
 
     private static OwnerRouter CreateRouter(string owner, bool internalCall)
     {
-        var ownership = new INodeOwnershipResolverCreateExpectations();
-        _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
-        _ = ownership.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(owner);
-        return OwnerRouters.Static(ownership.Instance(), CreateInvocationState(internalCall), Self);
+        var ownership = INodeOwnershipResolver.Mock(MockBehavior.Strict);
+        _ = ownership.SelfNodeId.Returns(Self);
+        _ = ownership.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns(owner);
+        return OwnerRouters.Static(ownership.Object, CreateInvocationState(internalCall), Self);
     }
 
     /// <summary>Records where the router ran each attempt: the forward target, or <see cref="Local" /> for the local path.</summary>

@@ -5,7 +5,6 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
@@ -20,6 +19,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -149,10 +151,10 @@ public sealed class SnapshotRetentionCrashTests : DisposableServerUnitTestBase
     private static Ledger CreateRecoveryLedger(RecoveryScenarioBuilder scenario, out ConcurrentQueue<bool> passes)
     {
         var outcomes = new ConcurrentQueue<bool>();
-        var readiness = new IRetentionCleanupReadinessStatusCreateExpectations();
-        _ = readiness.Setups.RecordWriteOutcome(Arg.Any<bool>()).Callback(outcomes.Enqueue);
+        var readiness = IRetentionCleanupReadinessStatus.Mock(MockBehavior.Strict);
+        _ = readiness.RecordWriteOutcome(Arg.Any<bool>()).Callback(outcomes.Enqueue);
         passes = outcomes;
-        return new Ledger(OptionsOf(scenario), NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance, readiness.Instance());
+        return new Ledger(OptionsOf(scenario), NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance, readiness.Object);
     }
 
     private static bool Found(RecoveryScenarioBuilder scenario, string key, CancellationToken cancellationToken) =>
@@ -165,9 +167,9 @@ public sealed class SnapshotRetentionCrashTests : DisposableServerUnitTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     private static async Task PublishManifestWithoutRetentionAsync(RecoveryScenarioBuilder scenario, CancellationToken cancellationToken)
     {
-        var fileOperations = new IStorageFileOperationsCreateExpectations();
-        _ = fileOperations.Setups.TryDelete(Arg.Any<string>()).ReturnValue(false);
-        using var ledger = new Ledger(OptionsOf(scenario), NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance, null, fileOperations.Instance());
+        var fileOperations = IStorageFileOperations.Mock(MockBehavior.Strict);
+        _ = fileOperations.TryDelete(Arg.Any<string>()).Returns(false);
+        using var ledger = new Ledger(OptionsOf(scenario), NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance, null, fileOperations.Object);
         await ledger.WriteSnapshotAsync(
             new State
             {

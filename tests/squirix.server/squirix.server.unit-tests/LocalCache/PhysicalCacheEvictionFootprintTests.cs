@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -11,6 +10,9 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.LocalCache;
 
@@ -108,10 +110,10 @@ public sealed class PhysicalCacheEvictionFootprintTests : ServerUnitTestBase
 
     private static ICacheEntrySizeEstimator<string> CreateFailingEstimator(Func<bool> armed)
     {
-        var estimator = new ICacheEntrySizeEstimatorCreateExpectations<string>();
-        _ = estimator.Setups.EstimateBytes(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<bool>())
-                     .Callback((_, _, _) => armed() ? throw new InvalidOperationException("estimator failure") : 100L);
-        return estimator.Instance();
+        var estimator = ICacheEntrySizeEstimator<string>.Mock(MockBehavior.Strict);
+        _ = estimator.EstimateBytes(Arg.Any<CacheKey>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<bool>())
+                     .Returns((_, _, _) => armed() ? throw new InvalidOperationException("estimator failure") : 100L);
+        return estimator.Object;
     }
 
     private static NodeCacheEntry<string> Entry(string value, DateTime? expiresUtc = null) => new(value, 1, expiresUtc);

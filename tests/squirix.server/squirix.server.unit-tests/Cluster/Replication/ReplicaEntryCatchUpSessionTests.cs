@@ -4,7 +4,6 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
@@ -16,6 +15,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Cluster.Replication.ReplicaSenderTestKit;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
@@ -229,17 +231,17 @@ public sealed class ReplicaEntryCatchUpSessionTests : ServerUnitTestBase
     public async Task TornLeaderFrameIsCorrupt(CancellationToken cancellationToken)
     {
         var status = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 3, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete);
-        var expectations = new IFollowerLogCreateExpectations();
-        _ = expectations.Setups.GetStatusAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(status));
-        _ = expectations.Setups.ReadEntriesAsync(Arg.Any<ulong>(), Arg.Any<int>(), Arg.Any<CancellationToken>(), Arg.Any<long>())
-                        .ReturnValue(Task.FromException<FollowerLogEntriesRead>(new InvalidDataException("torn frame")));
+        var expectations = IFollowerLog.Mock(MockBehavior.Strict);
+        _ = expectations.GetStatusAsync(Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(status));
+        _ = expectations.ReadEntriesAsync(Arg.Any<ulong>(), Arg.Any<int>(), Arg.Any<CancellationToken>(), Arg.Any<long>())
+                        .ReturnsAsync(Task.FromException<FollowerLogEntriesRead>(new InvalidDataException("torn frame")));
         var gateway = new ParkingFollowerGateway();
         var sender = CreateSender(gateway);
         try
         {
             using var lease = await sender.BeginCatchUpAsync(cancellationToken);
 
-            var result = await new ReplicaEntryCatchUpSession(expectations.Instance(), "n1", 1).RunAsync(lease, cancellationToken);
+            var result = await new ReplicaEntryCatchUpSession(expectations.Object, "n1", 1).RunAsync(lease, cancellationToken);
 
             _ = await Assert.That(result).IsEqualTo(new ReplicaCatchUpResult(ReplicaCatchUpOutcome.Corrupt, 0, 0, 0, 0, 0));
             _ = await Assert.That(gateway.CallCount).IsEqualTo(0);
@@ -262,11 +264,10 @@ public sealed class ReplicaEntryCatchUpSessionTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-catch-up-back-ups");
         await using var leader = await OpenAsync(Path.Join(dir, "leader"), cancellationToken);
         await AppendAsync(leader, 1, lastIndex, 1, cancellationToken);
-        var expectations = new IReplicaRpcGatewayCreateExpectations();
-        _ = expectations.Setups.AppendEntriesAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<FollowerBatch>(), Arg.Any<CancellationToken>())
-                        .Callback(static (_, _, batch, _) => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.LogMismatch, 1, batch.PrevLogIndex == 0UL ? 0UL : batch.PrevLogIndex - 1UL)))
-                        .ExpectedCallCount(uint.CreateChecked(expectedRounds));
-        var sender = CreateSender(expectations.Instance());
+        var expectations = IReplicaRpcGateway.Mock(MockBehavior.Strict);
+        _ = expectations.AppendEntriesAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<FollowerBatch>(), Arg.Any<CancellationToken>())
+                        .ReturnsAsync(static (_, _, batch, _) => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.LogMismatch, 1, batch.PrevLogIndex == 0UL ? 0UL : batch.PrevLogIndex - 1UL)));
+        var sender = CreateSender(expectations.Object);
         try
         {
             using var lease = await sender.BeginCatchUpAsync(cancellationToken);

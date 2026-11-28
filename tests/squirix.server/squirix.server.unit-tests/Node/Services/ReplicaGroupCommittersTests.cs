@@ -12,6 +12,8 @@ using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.LedGroupsTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
@@ -74,7 +76,7 @@ public sealed class ReplicaGroupCommittersTests : ServerUnitTestBase
         await using var own = CreateGroupCommitter(registry, "n1", new ScriptedGateway(), new StubCache(), TimeProvider.System, (TimeProvider.System, null));
 
         // The owner lookup has no setups: asking it would fail the test.
-        await using var committers = new ReplicaGroupCommitters([own], "n1", new INodeLocatorCreateExpectations().Instance(), TimeProvider.System);
+        await using var committers = new ReplicaGroupCommitters([own], "n1", INodeLocator.Mock(MockBehavior.Strict).Object, TimeProvider.System);
 
         _ = await Assert.That(committers.ForKey(CacheName, "c")).IsSameReferenceAs(own);
         _ = await Assert.That((committers.Leads("n1"), committers.Leads("n2"))).IsEqualTo((true, false));

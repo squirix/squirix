@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -14,6 +13,9 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -121,9 +123,9 @@ public sealed class ReplicaGroupEntriesTests : ServerUnitTestBase
 
     private static INodeLocator Locator()
     {
-        var locator = new INodeLocatorCreateExpectations();
-        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Callback(static (_, key) => key[..2]);
-        return locator.Instance();
+        var locator = INodeLocator.Mock(MockBehavior.Strict);
+        _ = locator.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns(static (_, key) => key[..2]);
+        return locator.Object;
     }
 
     private static void Seed(PhysicalCache<StoredValue> physical, CancellationToken cancellationToken)

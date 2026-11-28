@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
@@ -11,6 +10,9 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Cluster.Replication.ElectionTestDoubles;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
@@ -27,11 +29,11 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
     [Test]
     public async Task FailedTermPersistRearms(CancellationToken cancellationToken)
     {
-        var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.GetStatusAsync(Arg.Any<CancellationToken>()).ReturnValue(new ValueTask<FollowerLogStatus>(Status("n2", FollowerLogReadiness.Ready)));
-        _ = log.Setups.ObserveTermAsync(Arg.Any<ulong>(), Arg.Any<CancellationToken>()).ReturnValue(Task.FromResult(0UL));
+        var log = IFollowerLog.Mock(MockBehavior.Strict);
+        _ = log.GetStatusAsync(Arg.Any<CancellationToken>()).ReturnsAsync(new ValueTask<FollowerLogStatus>(Status("n2", FollowerLogReadiness.Ready)));
+        _ = log.ObserveTermAsync(Arg.Any<ulong>(), Arg.Any<CancellationToken>()).ReturnsAsync(Task.FromResult(0UL));
         var state = new ReplicaGroupState(3, Options, new FakeTimeProvider());
-        var election = Create(state, log.Instance(), "n2", Three);
+        var election = Create(state, log.Object, "n2", Three);
         _ = await election.StepAsync(cancellationToken);
         state.ObserveHigherTerm(5UL);
 
@@ -49,12 +51,12 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
     [Arguments(true)]
     public async Task UnreadyLogIsDeniedAsNotCaughtUp(bool failed, CancellationToken cancellationToken)
     {
-        var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.GetStatusAsync(Arg.Any<CancellationToken>()).ReturnValue(new ValueTask<FollowerLogStatus>(Status("n2", failed ? FollowerLogReadiness.Failed : FollowerLogReadiness.Unknown)));
+        var log = IFollowerLog.Mock(MockBehavior.Strict);
+        _ = log.GetStatusAsync(Arg.Any<CancellationToken>()).ReturnsAsync(new ValueTask<FollowerLogStatus>(Status("n2", failed ? FollowerLogReadiness.Failed : FollowerLogReadiness.Unknown)));
         var time = new FakeTimeProvider();
         var votes = new ScriptedVotes(Grant);
         var state = new ReplicaGroupState(3, Options, time);
-        var election = new ReplicaGroupElection(state, log.Instance(), votes, new RecordingLeadership(state), Three, Header("n2"));
+        var election = new ReplicaGroupElection(state, log.Object, votes, new RecordingLeadership(state), Three, Header("n2"));
         _ = await election.StepAsync(cancellationToken);
         time.Advance(Options.ElectionTimeout + Options.MaxJitter);
 
@@ -73,14 +75,14 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
     public async Task OwnGroupStartWaitsForReadyLog(CancellationToken cancellationToken)
     {
         var reads = 0;
-        var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.GetStatusAsync(Arg.Any<CancellationToken>()).Callback(_ =>
+        var log = IFollowerLog.Mock(MockBehavior.Strict);
+        _ = log.GetStatusAsync(Arg.Any<CancellationToken>()).ReturnsAsync(_ =>
             new ValueTask<FollowerLogStatus>(Status("n1", Interlocked.Increment(ref reads) == 1 ? FollowerLogReadiness.Failed : FollowerLogReadiness.Ready)));
-        _ = log.Setups.ObserveTermAsync(Arg.Any<ulong>(), Arg.Any<CancellationToken>()).ReturnValue(Task.FromResult(2UL));
+        _ = log.ObserveTermAsync(Arg.Any<ulong>(), Arg.Any<CancellationToken>()).ReturnsAsync(Task.FromResult(2UL));
         var state = new ReplicaGroupState(3, Options, new FakeTimeProvider());
         state.ApplyBlock.Assess();
         var leadership = new RecordingLeadership(state);
-        var election = new ReplicaGroupElection(state, log.Instance(), new ScriptedVotes(Grant), leadership, ["n1", "n2", "n3"], Header("n1"));
+        var election = new ReplicaGroupElection(state, log.Object, new ScriptedVotes(Grant), leadership, ["n1", "n2", "n3"], Header("n1"));
 
         var waiting = await election.StepAsync(cancellationToken);
         var waitingDelay = election.NextDelay();
@@ -116,10 +118,10 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
     public async Task CopyMarkedDuringSelfVoteLosesRound(CancellationToken cancellationToken)
     {
         var marked = 0;
-        var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.GetStatusAsync(Arg.Any<CancellationToken>()).Callback(_ =>
+        var log = IFollowerLog.Mock(MockBehavior.Strict);
+        _ = log.GetStatusAsync(Arg.Any<CancellationToken>()).ReturnsAsync(_ =>
             new ValueTask<FollowerLogStatus>(Status("n2", FollowerLogReadiness.Ready, Volatile.Read(ref marked) == 0 ? GroupMemberState.Complete : GroupMemberState.Incomplete)));
-        _ = log.Setups.RequestVoteAsync(Arg.Any<ElectionVoteRequest>(), Arg.Any<CancellationToken>()).Callback((_, _) =>
+        _ = log.RequestVoteAsync(Arg.Any<ElectionVoteRequest>(), Arg.Any<CancellationToken>()).ReturnsAsync((_, _) =>
         {
             Volatile.Write(ref marked, 1);
             return Task.FromResult(new FollowerLogVoteResult(true, string.Empty, 2UL));
@@ -129,7 +131,7 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
         state.ApplyBlock.Assess();
         var votes = new ScriptedVotes(Grant);
         var leadership = new RecordingLeadership(state);
-        var election = new ReplicaGroupElection(state, log.Instance(), votes, leadership, Three, Header("n2"));
+        var election = new ReplicaGroupElection(state, log.Object, votes, leadership, Three, Header("n2"));
         _ = await election.StepAsync(cancellationToken);
         time.Advance(Options.ElectionTimeout);
 

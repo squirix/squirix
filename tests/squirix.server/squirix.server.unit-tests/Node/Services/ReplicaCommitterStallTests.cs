@@ -7,7 +7,6 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -26,6 +25,9 @@ using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaCommitterDoubles;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -88,10 +90,10 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         var transport = error.ToServerCallException();
 
         // The remote owner reports the stable commit-unknown contract over gRPC.
-        var remoteOwner = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
-        _ = remoteOwner.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
-                       .Callback(static (_, _, _, _, _) => ValueTask.FromException(ServerOpContract.CommitOutcomeUnknown().ToServerCallException()));
-        var forwarded = new DomainErrorMappingCacheDecorator<StoredValue>(remoteOwner.Instance());
+        var remoteOwner = ILogicalNamespacedCache<StoredValue>.Mock(MockBehavior.Strict);
+        _ = remoteOwner.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
+                       .ReturnsAsync(static (_, _, _, _, _) => ValueTask.FromException(ServerOpContract.CommitOutcomeUnknown().ToServerCallException()));
+        var forwarded = new DomainErrorMappingCacheDecorator<StoredValue>(remoteOwner.Object);
         var remote = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(forwarded.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);

@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -15,6 +14,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
@@ -46,14 +48,14 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
         using var held = (await gate.AcquireAsync("cache", CacheOperationNames.Get, "jwt:client-a", cancellationToken)).Lease;
 
         var getValueCalls = 0;
-        var innerExpectations = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = innerExpectations.Setups.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                             .Callback((_, _, _) =>
+        var innerExpectations = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = innerExpectations.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                             .ReturnsAsync((_, _, _) =>
                               {
                                   _ = Interlocked.Increment(ref getValueCalls);
                                   return ValueTask.FromResult(new NodeCacheValueResult<string>(false, null));
                               });
-        var inner = innerExpectations.Instance();
+        var inner = innerExpectations.Object;
         var cacheA = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-a"));
         var cacheB = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-b"));
 
@@ -87,14 +89,14 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
         using var held = (await gate.AcquireAsync("cache", CacheOperationNames.Set, "jwt:client-a", cancellationToken)).Lease;
 
         var setEntryCalls = 0;
-        var innerExpectations = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = innerExpectations.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                             .Callback((_, _, _, _, _) =>
+        var innerExpectations = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = innerExpectations.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                             .ReturnsAsync((_, _, _, _, _) =>
                               {
                                   _ = Interlocked.Increment(ref setEntryCalls);
                                   return ValueTask.CompletedTask;
                               });
-        var inner = innerExpectations.Instance();
+        var inner = innerExpectations.Object;
         var cacheA = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-a"));
         var cacheB = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-b"));
         var entry = new NodeCacheEntry<string>("value");
@@ -128,11 +130,11 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
         {
             _ = await Assert.That(decision.IsAccepted).IsTrue();
             var entry = new NodeCacheEntry<string>("value");
-            var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-            _ = inner.Setups.GetValueAsync("c", "k", cancellationToken).ReturnValue(ValueTask.FromResult(new NodeCacheValueResult<string>(true, "value")));
-            _ = inner.Setups.SetEntryAsync("op-1", "c", "k", entry, cancellationToken).ReturnValue(ValueTask.CompletedTask);
-            var clients = new IBackpressureClientIdResolverCreateExpectations();
-            var cache = new BackpressureCacheDecorator<string>(inner.Instance(), gate, clients.Instance());
+            var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+            _ = inner.GetValueAsync("c", "k", cancellationToken).ReturnsAsync(ValueTask.FromResult(new NodeCacheValueResult<string>(true, "value")));
+            _ = inner.SetEntryAsync("op-1", "c", "k", entry, cancellationToken).ReturnsAsync(ValueTask.CompletedTask);
+            var clients = IBackpressureClientIdResolver.Mock(MockBehavior.Strict);
+            var cache = new BackpressureCacheDecorator<string>(inner.Object, gate, clients.Object);
 
             using (InboundAdmissionScope.Enter(gate))
             {
@@ -143,7 +145,8 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
                 _ = await Assert.That(gate.QueueDepth).IsEqualTo(0);
             }
 
-            inner.Verify();
+            inner.GetValueAsync("c", "k", cancellationToken).WasCalled(Times.Once);
+            inner.SetEntryAsync("op-1", "c", "k", entry, cancellationToken).WasCalled(Times.Once);
         }
 
         _ = await Assert.That(gate.InFlight).IsEqualTo(0);
@@ -154,8 +157,8 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
 
     private static IBackpressureClientIdResolver CreateClientIdResolver(string clientId)
     {
-        var expectations = new IBackpressureClientIdResolverCreateExpectations();
-        _ = expectations.Setups.Resolve().ReturnValue(clientId);
-        return expectations.Instance();
+        var expectations = IBackpressureClientIdResolver.Mock(MockBehavior.Strict);
+        _ = expectations.Resolve().Returns(clientId);
+        return expectations.Object;
     }
 }

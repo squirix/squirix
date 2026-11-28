@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
@@ -15,6 +14,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
@@ -31,22 +33,22 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
         var opt = ServerJsonSerializer.Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
         await using var journal = new SnapshotCutJournal(1, 2);
-        var captureExpectations = new ISnapshotEntryCaptureCreateExpectations();
-        _ = captureExpectations.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
-                               .ReturnValue(default);
-        var writerExpectations = new ISnapshotWriterCreateExpectations();
-        _ = writerExpectations.Setups.AllocateIndex(Arg.Any<int>()).Callback(static publishedIndex => publishedIndex + 1);
-        _ = writerExpectations.Setups.WriteAsync(
+        var captureExpectations = ISnapshotEntryCapture.Mock(MockBehavior.Strict);
+        _ = captureExpectations.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+                               .ReturnsAsync(ValueTask.CompletedTask);
+        var writerExpectations = ISnapshotWriter.Mock(MockBehavior.Strict);
+        _ = writerExpectations.AllocateIndex(Arg.Any<int>()).Returns(static publishedIndex => publishedIndex + 1);
+        _ = writerExpectations.WriteAsync(
             Arg.Any<int>(),
             Arg.Any<IReadOnlyList<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>>(),
             Arg.Any<IReadOnlyList<PersistedIdempotencyRecord>>(),
-            Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult("snap-test-path"));
+            Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult("snap-test-path"));
         var coordinator = new Coordinator(
             opt,
             journal,
             new CoordinatorDependencies(
-                captureExpectations.Instance(),
-                writerExpectations.Instance(),
+                captureExpectations.Object,
+                writerExpectations.Object,
                 store,
                 "test-node",
                 NoOpSnapshotTelemetry.Instance),

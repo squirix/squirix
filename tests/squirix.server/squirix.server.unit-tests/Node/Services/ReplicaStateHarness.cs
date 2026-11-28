@@ -5,7 +5,6 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -21,6 +20,9 @@ using Squirix.Server.TestKit.Logging;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Testing;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -137,12 +139,12 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
         var barriers = new List<(GroupMemberState First, GroupMemberState Second)>();
         var pressure = new JournalPressure();
         var journal = Journal(dir, barriers, pressure);
-        var snapshots = new ISnapshotReadinessStatusCreateExpectations();
-        _ = snapshots.Setups.HasFatalFailure.Gets().Callback(() => pressure.SnapshotFailed);
-        var sink = new ReplicaStateSink(appliers, committers, decorateSinkCache?.Invoke(local) ?? local, new ReplicaGroupEntries(physical, Locator()), journal, snapshots.Instance());
+        var snapshots = ISnapshotReadinessStatus.Mock(MockBehavior.Strict);
+        _ = snapshots.HasFatalFailure.Returns(() => pressure.SnapshotFailed);
+        var sink = new ReplicaStateSink(appliers, committers, decorateSinkCache?.Invoke(local) ?? local, new ReplicaGroupEntries(physical, Locator()), journal, snapshots.Object);
         var receiver = new ReplicaTransferReceiver(
             registry,
-            RocksDoubles.CreateReplicaMembers(),
+            TestDoubles.CreateReplicaMembers(),
             sink,
             options ?? new ReplicaTransferOptions(),
             clock,
@@ -251,18 +253,18 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
 
     private static IJournalCoordinator Journal(string dir, List<(GroupMemberState First, GroupMemberState Second)> barriers, JournalPressure pressure)
     {
-        var journal = new IJournalCoordinatorCreateExpectations();
-        _ = journal.Setups.AtHighWater.Gets().Callback(() => pressure.AtHighWater);
-        _ = journal.Setups.WaitForStartupAsync(Arg.Any<CancellationToken>()).Callback(static _ => ValueTask.CompletedTask);
-        _ = journal.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).Callback(token => RecordBarrierAsync(dir, barriers, token));
-        return journal.Instance();
+        var journal = IJournalCoordinator.Mock(MockBehavior.Strict);
+        _ = journal.AtHighWater.Returns(() => pressure.AtHighWater);
+        _ = journal.WaitForStartupAsync(Arg.Any<CancellationToken>()).ReturnsAsync(static _ => ValueTask.CompletedTask);
+        _ = journal.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnsAsync(token => RecordBarrierAsync(dir, barriers, token));
+        return journal.Object;
     }
 
     private static INodeLocator Locator()
     {
-        var locator = new INodeLocatorCreateExpectations();
-        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Callback(static (_, key) => key.StartsWith("other", StringComparison.Ordinal) ? "other" : GroupId);
-        return locator.Instance();
+        var locator = INodeLocator.Mock(MockBehavior.Strict);
+        _ = locator.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns(static (_, key) => key.StartsWith("other", StringComparison.Ordinal) ? "other" : GroupId);
+        return locator.Object;
     }
 
     private static async ValueTask RecordBarrierAsync(string dir, List<(GroupMemberState First, GroupMemberState Second)> barriers, CancellationToken cancellationToken)

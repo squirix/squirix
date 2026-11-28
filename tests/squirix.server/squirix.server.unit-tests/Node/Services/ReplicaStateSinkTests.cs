@@ -4,7 +4,6 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -17,6 +16,9 @@ using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaStateHarness;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -282,12 +284,12 @@ public sealed class ReplicaStateSinkTests : ServerUnitTestBase
 
         internal ILogicalNamespacedCache<StoredValue> Wrap(ILogicalNamespacedCache<StoredValue> inner)
         {
-            var rock = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
-            _ = rock.Setups.RemoveAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                    .Callback((operationId, cacheName, key, token) => Next() ? throw Refusal() : inner.RemoveAsync(operationId, cacheName, key, token));
-            _ = rock.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
-                    .Callback((operationId, cacheName, key, entry, length, token) => Next() ? throw Refusal() : inner.SetEntryAsync(operationId, cacheName, key, entry, length, token));
-            return rock.Instance();
+            var rock = ILogicalNamespacedCache<StoredValue>.Mock(MockBehavior.Strict);
+            _ = rock.RemoveAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                    .ReturnsAsync((operationId, cacheName, key, token) => Next() ? throw Refusal() : inner.RemoveAsync(operationId, cacheName, key, token));
+            _ = rock.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+                    .ReturnsAsync((operationId, cacheName, key, entry, length, token) => Next() ? throw Refusal() : inner.SetEntryAsync(operationId, cacheName, key, entry, length, token));
+            return rock.Object;
         }
 
         private static JournalCapacityExceededException Refusal() => new("journal total bytes exceed configured limit.");

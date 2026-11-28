@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -20,6 +19,9 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.LedGroupsTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
@@ -100,7 +102,7 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         var state = registry.StateFor(GroupId);
         _ = registry.TryGetLog(GroupId, out var log);
         var header = new ReplicaRpcHeader(GroupId, Fingerprint, 1UL, 2UL, "n1", "n1");
-        var election = new ReplicaGroupElection(state, log!, new IReplicaVoteGatewayCreateExpectations().Instance(), committers, ["n1", "n2", "n3"], in header);
+        var election = new ReplicaGroupElection(state, log!, new ReplicaVoteGatewayWithDefaults(IReplicaVoteGateway.Mock(MockBehavior.Strict).Object), committers, ["n1", "n2", "n3"], in header);
         _ = await election.StepAsync(cancellationToken);
         _ = state.BecomeLeader(2UL);
         _ = await election.StepAsync(cancellationToken);
@@ -416,9 +418,9 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
 
     private static IJournalDurabilityCoordinator Durable()
     {
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
-        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
-        return durability.Instance();
+        var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
+        _ = durability.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
+        return durability.Object;
     }
 
     private static ReplicaGroupCommitter Elected(ReplicaGroupRegistry registry, string groupId, IReplicaRpcGateway gateway)
@@ -537,9 +539,9 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         for (var i = 1; i <= 3; i++)
             cache.Set(new CacheKey("cache", $"k{i}"), new NodeCacheEntry<StoredValue>(StoredValue.FromText($"v{i}")), cancellationToken);
 
-        var locator = new INodeLocatorCreateExpectations();
-        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(groupId);
-        return new ReplicaStateTransfers(gateway, new ReplicaGroupEntries(cache, locator.Instance()), Durable(), new ReplicaTransferOptions(), NullLogger<ReplicaStateTransfers>.Instance, null);
+        var locator = INodeLocator.Mock(MockBehavior.Strict);
+        _ = locator.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns(groupId);
+        return new ReplicaStateTransfers(gateway, new ReplicaGroupEntries(cache, locator.Object), Durable(), new ReplicaTransferOptions(), NullLogger<ReplicaStateTransfers>.Instance, null);
     }
 
     [Mutable]

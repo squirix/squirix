@@ -14,6 +14,8 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -76,12 +78,12 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-recovery-crash-before-apply");
         var faults = CreateFaultExpectations();
-        _ = faults.Setups.OnFrameWritten();
-        _ = faults.Setups.OnFramesScheduling();
-        _ = faults.Setups.OnFlushed();
-        _ = faults.Setups.OnBeforeMemoryApply().Callback(FailOnce("simulated crash before memory apply."));
+        _ = faults.OnFrameWritten();
+        _ = faults.OnFramesScheduling();
+        _ = faults.OnFlushed();
+        _ = faults.OnBeforeMemoryApply().Callback(FailOnce("simulated crash before memory apply."));
 
-        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System))
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Object, TimeProvider.System))
         {
             await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
@@ -156,11 +158,11 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-follower-recovery-stale-suffix");
         var faults = CreateFaultExpectations();
-        _ = faults.Setups.OnFrameWritten().Callback(FailOnce("simulated failure after the frame write."));
-        _ = faults.Setups.OnFramesScheduling();
-        _ = faults.Setups.OnFlushed();
+        _ = faults.OnFrameWritten().Callback(FailOnce("simulated failure after the frame write."));
+        _ = faults.OnFramesScheduling();
+        _ = faults.OnFlushed();
 
-        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System))
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Object, TimeProvider.System))
         {
             await log.OpenSeededAsync(cancellationToken);
 
@@ -336,11 +338,11 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-log-truncate-fault");
         var armed = false;
         var faults = CreateFaultExpectations();
-        _ = faults.Setups.OnFrameWritten();
-        _ = faults.Setups.OnFramesScheduling();
-        _ = faults.Setups.OnFlushed().Callback(FailOnce("simulated failure after the durable truncate.", () => armed));
+        _ = faults.OnFrameWritten();
+        _ = faults.OnFramesScheduling();
+        _ = faults.OnFlushed().Callback(FailOnce("simulated failure after the durable truncate.", () => armed));
 
-        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System);
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Object, TimeProvider.System);
         await log.OpenSeededAsync(cancellationToken);
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
@@ -478,11 +480,11 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
     }
 
     /// <summary>Creates fault hooks whose metadata and commit-advance boundaries never interfere; each test sets up the other boundaries it reaches.</summary>
-    private static IFollowerLogFaultHooksCreateExpectations CreateFaultExpectations()
+    private static Mock<IFollowerLogFaultHooks> CreateFaultExpectations()
     {
-        var expectations = new IFollowerLogFaultHooksCreateExpectations();
-        _ = expectations.Setups.OnMetaPublishing();
-        _ = expectations.Setups.OnCommitAdvanced();
+        var expectations = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+        _ = expectations.OnMetaPublishing();
+        _ = expectations.OnCommitAdvanced();
         return expectations;
     }
 

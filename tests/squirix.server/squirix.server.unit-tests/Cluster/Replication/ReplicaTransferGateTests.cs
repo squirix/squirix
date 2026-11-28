@@ -412,7 +412,7 @@ public sealed class ReplicaTransferGateTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-gate-first-start");
         await using var harness = await OpenAsync(dir, cancellationToken);
-        var follower = new ReplicaFollower(harness.Registry, RocksDoubles.CreateReplicaMembers());
+        var follower = new ReplicaFollower(harness.Registry, TestDoubles.CreateReplicaMembers());
         var sequence = await harness.BeginAndUploadAsync("t", 1UL, cancellationToken);
         _ = await harness.Receiver.WipeAsync(harness.HeaderFor("t"), sequence, cancellationToken);
         var path = GroupStoragePaths.GetMetadataPath(dir, GroupId);

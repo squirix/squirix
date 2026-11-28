@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Adapters.Wire;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -18,6 +17,9 @@ using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Adapters.Wire;
 
@@ -139,15 +141,15 @@ public sealed class OwnerRouterSilentLeaderTests : ServerUnitTestBase
 
     private static Task<string> RunAsync(ReplicaGroupRegistry registry, TimeProvider time, List<string> targets, bool internalCall)
     {
-        var ownership = new INodeOwnershipResolverCreateExpectations();
-        _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
-        _ = ownership.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(Group);
-        var invocation = new IRemoteInvocationStateCreateExpectations();
-        _ = invocation.Setups.IsInternalOwnerInvocation.Gets().ReturnValue(internalCall);
+        var ownership = INodeOwnershipResolver.Mock(MockBehavior.Strict);
+        _ = ownership.SelfNodeId.Returns(Self);
+        _ = ownership.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns(Group);
+        var invocation = IRemoteInvocationState.Mock(MockBehavior.Strict);
+        _ = invocation.IsInternalOwnerInvocation.Returns(internalCall);
         var locator = OwnerRouters.Locator(Self, First, Second, Other, Group);
         var router = new OwnerRouter(
-            ownership.Instance(),
-            invocation.Instance(),
+            ownership.Object,
+            invocation.Object,
             RingAgreements.Create(),
             new ReplicaLeaderTable(registry, Self, locator),
             LeaderWait,

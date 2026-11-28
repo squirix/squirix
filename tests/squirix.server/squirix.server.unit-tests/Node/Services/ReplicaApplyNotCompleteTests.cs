@@ -178,7 +178,7 @@ public sealed class ReplicaApplyNotCompleteTests : ServerUnitTestBase
             await firstPasses.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             before = appliers.For("n2").AppliedIndex;
             var all = WhenAppliedAsync(cache, 4);
-            var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+            var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
             var appended = await follower.AppendAsync("n2", Fingerprint, 1, Batch(Prepare("k3", 3UL), 2UL, 3UL), cancellationToken);
             _ = await Assert.That(appended.Success).IsTrue().Because($"refused with '{appended.RefusalCode}'");
             await all.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);

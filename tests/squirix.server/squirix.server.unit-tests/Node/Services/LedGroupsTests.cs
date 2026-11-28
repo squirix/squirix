@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Logging;
@@ -19,6 +18,9 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.LedGroupsTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
@@ -268,11 +270,11 @@ public sealed class LedGroupsTests : ServerUnitTestBase
         await committers.For("n1").CommitSetAsync(NewOperationId(), CacheName, "a", Entry("a"), cancellationToken);
         await committers.For("n2").CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken);
         await committers.For("n2").CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken);
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
-        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
+        _ = durability.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
         using var service = new ReplicaLogCompactionService(
             committers,
-            durability.Instance(),
+            durability.Object,
             (new ReplicaLogCompactionOptions(), new ReplicaLogCompactionPolicy(long.MaxValue, 1)),
             metrics,
             (appliers, registry),

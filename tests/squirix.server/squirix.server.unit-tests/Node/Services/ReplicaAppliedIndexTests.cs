@@ -3,13 +3,11 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -20,6 +18,9 @@ using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -84,16 +85,16 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
     {
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
-                 .Callback(async (_, _, _, _, token) =>
+        var cache = TestDoubles.CreateCacheWithEntryWriteOverloads<StoredValue>();
+        _ = cache.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
+                 .ReturnsAsync(async (_, _, _, _, token) =>
                  {
                      _ = entered.TrySetResult();
                      await release.Task.WaitAsync(Bound, TimeProvider.System, token).ConfigureAwait(false);
                  });
         using var dir = new TempDirectory("squirix-owner-applied-wait");
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache.Instance(), NullLogger<ReplicaGroupCommitter>.Instance);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache.Object, NullLogger<ReplicaGroupCommitter>.Instance);
 
         var write = committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken);
         await entered.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
@@ -119,9 +120,9 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
     {
         var applied = new ConcurrentQueue<string>();
         var failing = 1;
-        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
-                 .Callback((_, _, key, _, _) =>
+        var cache = TestDoubles.CreateCacheWithEntryWriteOverloads<StoredValue>();
+        _ = cache.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
+                 .ReturnsAsync((_, _, key, _, _) =>
                  {
                      if (Volatile.Read(ref failing) != 0)
                          return ValueTask.FromException(new IOException("memory apply failed"));
@@ -131,7 +132,7 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
                  });
         using var dir = new TempDirectory("squirix-owner-applied-pending");
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache.Instance(), NullLogger<ReplicaGroupCommitter>.Instance);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache.Object, NullLogger<ReplicaGroupCommitter>.Instance);
 
         var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await committer.FlushAppliedAsync(Durable(), cancellationToken);
@@ -157,11 +158,11 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
         await committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken);
         var barrier = new BarrierProbe(registry);
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
-        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>())
-                      .Callback(barrier.OnBarrierAsync);
+        var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
+        _ = durability.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>())
+                      .ReturnsAsync(barrier.OnBarrierAsync);
 
-        await committer.FlushAppliedAsync(durability.Instance(), cancellationToken);
+        await committer.FlushAppliedAsync(durability.Object, cancellationToken);
 
         _ = await Assert.That(barrier.AtBarrier).IsEqualTo(0UL).Because("The applied index must not be persisted before the barrier returns.");
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastAppliedIndex).IsEqualTo(1UL);
@@ -177,11 +178,11 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
         await committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken);
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
-        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>())
-                      .Callback(static _ => ValueTask.FromException(new IOException("journal flush failed")));
+        var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
+        _ = durability.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>())
+                      .ReturnsAsync(static _ => ValueTask.FromException(new IOException("journal flush failed")));
 
-        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(committer.FlushAppliedAsync(durability.Instance(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(committer.FlushAppliedAsync(durability.Object, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastAppliedIndex).IsEqualTo(0UL);
         _ = await Assert.That((await OwnedLog(registry).GetCommittedEntriesAsync(cancellationToken)).Count).IsEqualTo(1);
@@ -251,9 +252,9 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
 
     private static IJournalDurabilityCoordinator Durable()
     {
-        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
-        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
-        return durability.Instance();
+        var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
+        _ = durability.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
+        return durability.Object;
     }
 
     private static IFollowerLog OwnedLog(ReplicaGroupRegistry registry) =>

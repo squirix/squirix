@@ -8,6 +8,7 @@ using Squirix.Server.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
 
 namespace Squirix.Server.UnitTests.Node.Endpoint;
 
@@ -125,7 +126,7 @@ public sealed class InboundEndpointCacheOperationsTests
         _ = await Assert.That(accented.Message).Contains("invalid characters", StringComparison.Ordinal);
     }
 
-    private static InboundEndpointCacheOperations<string> CreateOperations() => new(new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
+    private static InboundEndpointCacheOperations<string> CreateOperations() => new(ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict).Object);
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static WeakReference[] CreateRequestFacades(InboundEndpointCacheOperations<string> operations)

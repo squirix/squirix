@@ -11,6 +11,8 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -181,8 +183,8 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
     {
         using var dir = NewDirectory("squirix-snapshot-store-cancel");
         using var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var faults = new IFollowerLogFaultHooksCreateExpectations();
-        _ = faults.Setups.OnSnapshotPublishing().Callback(
+        var faults = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+        _ = faults.OnSnapshotPublishing().Callback(
             Bind.To<CancellationTokenSource, Action>(
                 source,
                 static cancel =>
@@ -194,7 +196,7 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
                             _ = cancel.CancelAsync();
                     };
                 }));
-        var store = NewStore(dir, faults.Instance());
+        var store = NewStore(dir, faults.Object);
 
         await store.PublishAsync(Snapshot(4UL), source.Token);
 

@@ -11,6 +11,7 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -167,10 +168,10 @@ public sealed class ReplicaEffectResolutionTests : ServerUnitTestBase
     [Arguments(ReplicaMutationKinds.RemoveExpiration)]
     public async Task UnchangedNeverCallsCache(string kind, CancellationToken cancellationToken)
     {
-        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
+        var cache = ILogicalNamespacedCache<StoredValue>.Mock(MockBehavior.Strict);
         var record = Record(kind, false, false, 0, false);
 
-        await ReplicaCacheApplier.ApplyAsync(cache.Instance(), in record, cancellationToken);
+        await ReplicaCacheApplier.ApplyAsync(cache.Object, in record, cancellationToken);
 
         _ = await Assert.That(ReplicaCacheApplier.ResolveEffect(in record)).IsEqualTo(ReplicaEffectKind.Unchanged);
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(record.OutcomePayload)).IsFalse();

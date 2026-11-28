@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -17,6 +16,9 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Node.App.Decorators;
 
@@ -43,10 +45,10 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
     public async Task GrowingWriteRefusedOnMemberPressure(CancellationToken cancellationToken)
     {
         using var sink = new MeasurementSink(_testMeter);
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
         var accounting = CreateAccounting();
-        var cache = Create(inner.Instance(), accounting, static (_, _) => true, null);
+        var cache = Create(inner.Object, accounting, static (_, _) => true, null);
 
         _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
@@ -59,11 +61,11 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
     [Test]
     public async Task MemberLookupUsesKeyGroup(CancellationToken cancellationToken)
     {
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(CacheName, Arg.Any<string>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
-        _ = inner.Setups.SetEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetEntryAsync(CacheName, Arg.Any<string>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
+        _ = inner.SetEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
         var cache = Create(
-            inner.Instance(),
+            inner.Object,
             CreateAccounting(),
             static (cacheName, key) => string.Equals(cacheName, CacheName, StringComparison.Ordinal) && string.Equals(key, "pressured", StringComparison.Ordinal),
             null);
@@ -77,10 +79,10 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
     [Test]
     public async Task WriteWithoutMemberPressurePasses(CancellationToken cancellationToken)
     {
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
-        _ = inner.Setups.SetEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
-        var instance = inner.Instance();
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
+        _ = inner.SetEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
+        var instance = inner.Object;
         var accounting = CreateAccounting();
 
         await Create(instance, accounting, static (_, _) => false, null).SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken);
@@ -94,9 +96,9 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
     [Test]
     public async Task RemoveIsAdmittedWhileMemberPressured(CancellationToken cancellationToken)
     {
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.RemoveAsync("op-1", CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
-        var cache = Create(inner.Instance(), CreateAccounting(), static (_, _) => true, null);
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.RemoveAsync("op-1", CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(true));
+        var cache = Create(inner.Object, CreateAccounting(), static (_, _) => true, null);
 
         var removed = await cache.RemoveAsync("op-1", CacheName, Key, cancellationToken);
 
@@ -108,11 +110,11 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
     [Test]
     public async Task ShrinkingWriteAdmittedOnMemberPressure(CancellationToken cancellationToken)
     {
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(Large));
-        _ = inner.Setups.SetEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(Large));
+        _ = inner.SetEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
         var accounting = CreateAccounting();
-        var cache = Create(inner.Instance(), accounting, static (_, _) => true, null);
+        var cache = Create(inner.Object, accounting, static (_, _) => true, null);
 
         await cache.SetEntryAsync("op-1", CacheName, Key, Small, cancellationToken);
 
@@ -124,11 +126,11 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
     [Test]
     public async Task RecordedWriteReplaysWhileMemberPressured(CancellationToken cancellationToken)
     {
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
-        _ = inner.Setups.SetEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
+        _ = inner.SetEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
         var accounting = CreateAccounting();
-        var cache = Create(inner.Instance(), accounting, static (_, _) => true, static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal));
+        var cache = Create(inner.Object, accounting, static (_, _) => true, static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal));
 
         await cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken);
 
@@ -141,9 +143,9 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
     public async Task OwnPressureTakesPrecedence(CancellationToken cancellationToken)
     {
         using var sink = new MeasurementSink(_testMeter);
-        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
-        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
-        var cache = Create(inner.Instance(), CreateAccounting(), static (_, _) => true, null, 1);
+        var inner = ILogicalNamespacedCache<string>.Mock(MockBehavior.Strict);
+        _ = inner.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
+        var cache = Create(inner.Object, CreateAccounting(), static (_, _) => true, null, 1);
 
         _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 

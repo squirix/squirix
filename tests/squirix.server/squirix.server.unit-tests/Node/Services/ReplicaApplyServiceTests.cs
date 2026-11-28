@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -20,6 +19,8 @@ using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.LedGroupsTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
@@ -119,7 +120,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
             registry.ApplySignalFor("n1").Notify();
             fallback.Advance(TimeSpan.FromSeconds(2));
             var second = WhenAppliedAsync(cache, 2);
-            _ = await new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers()).AppendAsync("n3", Fingerprint, 1, Batch(Prepare("m2", 2UL), 1UL, 2UL), cancellationToken);
+            _ = await new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers()).AppendAsync("n3", Fingerprint, 1, Batch(Prepare("m2", 2UL), 1UL, 2UL), cancellationToken);
             await second.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         }
         finally
@@ -204,7 +205,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         {
             await first.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             var second = WhenAppliedAsync(cache, 2);
-            var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+            var follower = new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers());
             var appended = await follower.AppendAsync("n2", Fingerprint, 1, Batch(Prepare("k2", 2UL), 1UL, 2UL), cancellationToken);
             _ = await Assert.That(appended.Success).IsTrue().Because($"refused with '{appended.RefusalCode}'");
             await second.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
@@ -246,7 +247,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
             await events.WhenLoggedAsync(StoppedEventId).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             await first.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             var second = WhenAppliedAsync(cache, 2);
-            _ = await new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers()).AppendAsync("n3", Fingerprint, 1, Batch(Prepare("m2", 2UL), 1UL, 2UL), cancellationToken);
+            _ = await new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers()).AppendAsync("n3", Fingerprint, 1, Batch(Prepare("m2", 2UL), 1UL, 2UL), cancellationToken);
             await second.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             _ = await Assert.That(service.ExecuteTask?.IsCompleted).IsFalse().Because("A stopped group must not end the service.");
         }
@@ -287,7 +288,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         {
             await first.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             var second = WhenAppliedAsync(cache, 2);
-            _ = await new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers()).AppendAsync("n2", Fingerprint, 1, Batch(in appended, 1UL, 2UL), cancellationToken);
+            _ = await new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers()).AppendAsync("n2", Fingerprint, 1, Batch(in appended, 1UL, 2UL), cancellationToken);
             await second.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         }
         finally
@@ -312,11 +313,11 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-apply-service-fault");
         await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
         await SeedAsync(registry, "n2", 1UL, cancellationToken, "k1");
-        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
-                 .Callback(static (_, _, _, _, _) => ValueTask.FromException(new NotSupportedException("unexpected cache failure")));
+        var cache = TestDoubles.CreateCacheWithEntryWriteOverloads<StoredValue>();
+        _ = cache.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
+                 .ReturnsAsync(static (_, _, _, _, _) => ValueTask.FromException(new NotSupportedException("unexpected cache failure")));
         using var meter = new Meter("test");
-        var appliers = CreateAppliers(registry, cache.Instance(), meter);
+        var appliers = CreateAppliers(registry, cache.Object, meter);
         using var service = new ReplicaApplyService(
             registry,
             appliers,
@@ -348,9 +349,9 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         await SeedAsync(registry, "n2", 1UL, cancellationToken, "k1");
         var writes = 0;
         var applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
-                 .Callback((_, _, _, _, _) =>
+        var cache = TestDoubles.CreateCacheWithEntryWriteOverloads<StoredValue>();
+        _ = cache.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
+                 .ReturnsAsync((_, _, _, _, _) =>
                   {
                       var write = Interlocked.Increment(ref writes);
                       if (write == 1)
@@ -363,7 +364,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
                   });
         var events = new EventRecordingLogger();
         using var meter = new Meter("test");
-        var appliers = CreateAppliers(registry, cache.Instance(), meter);
+        var appliers = CreateAppliers(registry, cache.Object, meter);
         using var service = new ReplicaApplyService(
             registry,
             appliers,
@@ -376,7 +377,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         try
         {
             await events.WhenLoggedAsync(RetryEventId).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-            _ = await new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers()).AppendAsync("n2", Fingerprint, 1, Batch(Prepare("k2", 2UL), 1UL, 2UL), cancellationToken);
+            _ = await new ReplicaFollower(registry, TestDoubles.CreateReplicaMembers()).AppendAsync("n2", Fingerprint, 1, Batch(Prepare("k2", 2UL), 1UL, 2UL), cancellationToken);
             await applied.Task.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             _ = await Assert.That(service.ExecuteTask?.IsCompleted).IsFalse().Because("A full journal must not end the service.");
         }
@@ -398,15 +399,15 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         await SeedAsync(registry, "n3", 1UL, cancellationToken, "m1");
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var cache = new ILogicalNamespacedCacheCreateExpectations<StoredValue>();
-        _ = cache.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
-                 .Callback((_, _, _, _, _) =>
+        var cache = TestDoubles.CreateCacheWithEntryWriteOverloads<StoredValue>();
+        _ = cache.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
+                 .ReturnsAsync((_, _, _, _, _) =>
                   {
                       _ = entered.TrySetResult();
                       return new ValueTask(release.Task);
                   });
         using var meter = new Meter("test");
-        var appliers = CreateAppliers(registry, cache.Instance(), meter);
+        var appliers = CreateAppliers(registry, cache.Object, meter);
         using var service = new ReplicaApplyService(
             registry,
             appliers,

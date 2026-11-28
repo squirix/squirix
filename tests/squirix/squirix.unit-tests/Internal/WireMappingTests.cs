@@ -1,8 +1,8 @@
 using System;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.TestKit;
@@ -11,6 +11,9 @@ using Squirix.Transport.Wire.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.UnitTests.Internal;
 
@@ -48,7 +51,7 @@ public sealed class WireMappingTests
     [Test]
     public async Task TypedReadsExactPrimitives()
     {
-        var serializer = new ISquirixSerializerCreateExpectations().Instance();
+        var serializer = ISquirixSerializer.Mock(MockBehavior.Strict).Object;
 
         _ = await Assert.That(WireMapping.Read<string>(new CacheValue { StringValue = "hello" }, serializer)).IsEqualTo("hello");
         _ = await Assert.That(WireMapping.Read<bool>(new CacheValue { BoolValue = true }, serializer)).IsTrue();
@@ -156,10 +159,10 @@ public sealed class WireMappingTests
     public async Task ObjectWritesSerializerBytesWithoutCopy()
     {
         var produced = Encoding.UTF8.GetBytes("""{"Count":1,"Name":"n"}""");
-        var expectations = new ISquirixSerializerCreateExpectations();
-        _ = expectations.Setups.SerializeToUtf8Bytes(Arg.Any<CustomCacheValue?>()).ReturnValue(produced);
+        var expectations = ISquirixSerializer.Mock(MockBehavior.Strict);
+        _ = expectations.SerializeToUtf8Bytes<CustomCacheValue>(Arg.Any<CustomCacheValue?>(), default(JsonTypeInfo<CustomCacheValue>?)).Returns(produced);
 
-        var wire = WireMapping.CreateWireEntry<CustomCacheValue>(new CustomCacheValue { Count = 1, Name = "n" }, expectations.Instance());
+        var wire = WireMapping.CreateWireEntry<CustomCacheValue>(new CustomCacheValue { Count = 1, Name = "n" }, expectations.Object);
 
         _ = await Assert.That(wire.Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.JsonUtf8);
         _ = await Assert.That(wire.Value.JsonUtf8.Span.Overlaps(produced, out var offset)).IsTrue();

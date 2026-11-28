@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.ProtocolModel;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -18,6 +17,9 @@ using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -272,22 +274,22 @@ public sealed class ProtocolModelConformanceTests
         await using var log = new FollowerLog(dir, "election-trace", GroupComposition.Create("election-trace"), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenSeededAsync(cancellationToken);
         var recorder = new ConformanceTestKit.VoteRecorder(new Dictionary<string, ConformanceTestKit.VoteReply>(StringComparer.Ordinal) { ["node-b"] = nodeB, ["node-c"] = nodeC });
-        var votes = new IReplicaVoteGatewayCreateExpectations();
-        _ = votes.Setups.PreVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
-                 .ReturnValue(Task.FromResult(new FollowerLogVoteResult(true, string.Empty, 0UL)));
+        var votes = IReplicaVoteGateway.Mock(MockBehavior.Strict);
+        _ = votes.PreVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
+                 .ReturnsAsync(Task.FromResult(new FollowerLogVoteResult(true, string.Empty, 0UL)));
 
         // The promotion commits the leader-term entry of the won term at the first index, through the production commit coordinator.
         var pipeline = new ConformanceTestKit.Pipeline { LeaderSlot = ElectionLeaderSlot, LeaderTerm = ElectionTerm, Votes = recorder };
         await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, new FakeTimeProvider(DateTimeOffset.UnixEpoch));
-        var leadership = new IReplicaLeadershipCreateExpectations();
+        var leadership = IReplicaLeadership.Mock(MockBehavior.Strict);
         var (requestVote, promote) =
             Bind.To<(ConformanceTestKit.VoteRecorder Recorder, ReplicaCommitCoordinator Coordinator), (
                 Func<string, ReplicaRpcHeader, ulong, ulong, CancellationToken, Task<FollowerLogVoteResult>>, Func<string, ulong, CancellationToken, Task<bool>>)>(
                 (recorder, coordinator),
                 static shared => ((nodeId, header, _, _, _) => shared.Recorder.RequestVoteAsync(nodeId, header.Term),
                     (_, term, token) => CommitLeaderTermAsync(shared.Coordinator, term, token)));
-        _ = votes.Setups.RequestVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>()).Callback(requestVote);
-        _ = leadership.Setups.PromoteAsync(Arg.Any<string>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>()).Callback(promote);
+        _ = votes.RequestVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>()).ReturnsAsync(requestVote);
+        _ = leadership.PromoteAsync(Arg.Any<string>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>()).ReturnsAsync(promote);
 
         var time = new FakeTimeProvider();
         var timing = new ElectionTimerOptions { ElectionTimeout = TimeSpan.FromMilliseconds(500), MaxJitter = TimeSpan.Zero, JitterSeed = 3UL };
@@ -296,8 +298,8 @@ public sealed class ProtocolModelConformanceTests
         var election = new ReplicaGroupElection(
             state,
             log,
-            votes.Instance(),
-            leadership.Instance(),
+            new ReplicaVoteGatewayWithDefaults(votes.Object),
+            leadership.Object,
             ["node-b", "node-a", "node-c"],
             new ReplicaRpcHeader("election-trace", ReadOnlyMemory<byte>.Of(9), 1UL, 0UL, string.Empty, "node-a"));
         _ = await election.StepAsync(cancellationToken);
@@ -322,7 +324,7 @@ public sealed class ProtocolModelConformanceTests
         Task commit,
         CancellationToken cancellationToken)
     {
-        var applier = new ReplicaGroupApplier(new ILogicalNamespacedCacheCreateExpectations<StoredValue>().Instance(), NullLogger.Instance);
+        var applier = new ReplicaGroupApplier(ILogicalNamespacedCache<StoredValue>.Mock(MockBehavior.Strict).Object, NullLogger.Instance);
         applier.ResetTo(pipeline.AppliedIndex);
         var wait = applier.WaitAppliedAsync(readIndex, cancellationToken);
 

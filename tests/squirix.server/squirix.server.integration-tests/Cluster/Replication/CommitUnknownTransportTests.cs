@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
@@ -13,6 +12,9 @@ using Squirix.Transport.Binary;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -24,13 +26,13 @@ public sealed class CommitUnknownTransportTests : NodeIntegrationTestBase
     [Test]
     public async Task CancellationAfterAppendIsUnknown(CancellationToken cancellationToken)
     {
-        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
-        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        var expectations = IReplicaCommitFaultHooks.Mock(MockBehavior.Strict);
+        _ = expectations.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
         var localAppended = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var acknowledgement = new TaskCompletionSource<ReplicaDurableAcknowledgement>(TaskCreationOptions.RunContinuationsAsynchronously);
         var pipeline = CreateBlockingFollowerPipeline(localAppended, acknowledgement);
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 1);
-        await using var coordinator = new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System))
+        await using var coordinator = new ReplicaCommitCoordinator(options, pipeline, expectations.Object, new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System))
         {
             ObserveTimeProvider = TimeProvider.System,
             BudgetTimeProvider = new FakeTimeProvider(DateTimeOffset.UnixEpoch),
@@ -67,17 +69,17 @@ public sealed class CommitUnknownTransportTests : NodeIntegrationTestBase
         TaskCompletionSource<bool> localAppended,
         TaskCompletionSource<ReplicaDurableAcknowledgement> acknowledgement)
     {
-        var expectations = new IReplicaCommitPipelineCreateExpectations();
-        _ = expectations.Setups.AdvanceCommitIndexAsync(Arg.Any<ulong>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
-        _ = expectations.Setups.AppendFollowerAsync(Arg.Any<int>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
-            .Callback((_, _, _) => new ValueTask<ReplicaDurableAcknowledgement>(acknowledgement.Task));
-        _ = expectations.Setups.AppendLocalAsync(Arg.Any<IReadOnlyList<PreparedReplicaMutation>>(), Arg.Any<CancellationToken>()).Callback((_, _) =>
+        var expectations = IReplicaCommitPipeline.Mock(MockBehavior.Strict);
+        _ = expectations.AdvanceCommitIndexAsync(Arg.Any<ulong>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
+        _ = expectations.AppendFollowerAsync(Arg.Any<int>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
+            .ReturnsAsync((_, _, _) => new ValueTask<ReplicaDurableAcknowledgement>(acknowledgement.Task));
+        _ = expectations.AppendLocalAsync(Arg.Any<IReadOnlyList<PreparedReplicaMutation>>(), Arg.Any<CancellationToken>()).ReturnsAsync((_, _) =>
         {
             localAppended.SetResult(true);
             return ValueTask.CompletedTask;
         });
-        _ = expectations.Setups.ApplyMemoryAsync(Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
-        _ = expectations.Setups.RecordLaggingReplica(Arg.Any<int>(), Arg.Any<ulong>());
-        return expectations.Instance();
+        _ = expectations.ApplyMemoryAsync(Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
+        _ = expectations.RecordLaggingReplica(Arg.Any<int>(), Arg.Any<ulong>());
+        return expectations.Object;
     }
 }

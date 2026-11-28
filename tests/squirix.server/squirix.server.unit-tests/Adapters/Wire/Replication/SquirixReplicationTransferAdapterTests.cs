@@ -259,7 +259,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
         var registry = new ReplicaGroupRegistry(dir, [GroupId], 3, TransferFixtures.Fingerprint, 1UL, NullLoggerFactory.Instance, logOptions) { ElectionClock = clock };
         await registry.OpenAsync(cancellationToken);
         var sink = new CountingSink();
-        var members = RocksDoubles.CreateReplicaMembers();
+        var members = TestDoubles.CreateReplicaMembers();
         var logger = new EventRecordingLogger();
         var receiver = new ReplicaTransferReceiver(registry, members, sink, options ?? new ReplicaTransferOptions(), clock, logger, "receiver");
         var mtls = new MtlsOptions { InternalListenPort = 6001 };

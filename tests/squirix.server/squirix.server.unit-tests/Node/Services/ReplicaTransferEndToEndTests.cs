@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -18,6 +17,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -197,9 +199,9 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
             await CommitAsync("k4", null, cancellationToken);
             Gateway.FollowerDown = false;
             Gateway.HoldEntries = true;
-            var locator = new INodeLocatorCreateExpectations();
-            _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(GroupId);
-            _transfers = new ReplicaStateTransfers(Gateway, new ReplicaGroupEntries(Cache, locator.Instance()), Durable(), new ReplicaTransferOptions(), NullLogger<ReplicaStateTransfers>.Instance, null);
+            var locator = INodeLocator.Mock(MockBehavior.Strict);
+            _ = locator.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Returns(GroupId);
+            _transfers = new ReplicaStateTransfers(Gateway, new ReplicaGroupEntries(Cache, locator.Object), Durable(), new ReplicaTransferOptions(), NullLogger<ReplicaStateTransfers>.Instance, null);
             _ = await _committer.VerifyReplicasAsync(cancellationToken);
         }
 
@@ -211,9 +213,9 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
 
         private static IJournalDurabilityCoordinator Durable()
         {
-            var durability = new IJournalDurabilityCoordinatorCreateExpectations();
-            _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
-            return durability.Instance();
+            var durability = IJournalDurabilityCoordinator.Mock(MockBehavior.Strict);
+            _ = durability.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
+            return durability.Object;
         }
 
         private static T ThrowNotOpen<T>() => throw new InvalidOperationException("The leader is not open.");

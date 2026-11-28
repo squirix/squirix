@@ -12,6 +12,8 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -55,19 +57,19 @@ public sealed class GroupBootstrapTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-bootstrap-half-offer");
         var publishes = 0;
         var failAt = int.MaxValue;
-        var faults = new IFollowerLogFaultHooksCreateExpectations();
-        _ = faults.Setups.OnFrameWritten();
-        _ = faults.Setups.OnFramesScheduling();
-        _ = faults.Setups.OnFlushed();
-        _ = faults.Setups.OnCommitAdvanced();
-        _ = faults.Setups.OnBeforeMemoryApply();
-        _ = faults.Setups.OnMetaPublishing().Callback(() =>
+        var faults = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+        _ = faults.OnFrameWritten();
+        _ = faults.OnFramesScheduling();
+        _ = faults.OnFlushed();
+        _ = faults.OnCommitAdvanced();
+        _ = faults.OnBeforeMemoryApply();
+        _ = faults.OnMetaPublishing().Callback(() =>
         {
             if (++publishes == failAt)
                 throw new IOException("simulated failure at the second slot write of the offer.");
         });
 
-        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System))
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Object, TimeProvider.System))
         {
             await log.OpenAsync(cancellationToken);
             failAt = publishes + 2;
@@ -255,19 +257,19 @@ public sealed class GroupBootstrapTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-bootstrap-fault");
         var publishes = 0;
         var failAt = int.MaxValue;
-        var faults = new IFollowerLogFaultHooksCreateExpectations();
-        _ = faults.Setups.OnFrameWritten();
-        _ = faults.Setups.OnFramesScheduling();
-        _ = faults.Setups.OnFlushed();
-        _ = faults.Setups.OnCommitAdvanced();
-        _ = faults.Setups.OnBeforeMemoryApply();
-        _ = faults.Setups.OnMetaPublishing().Callback(() =>
+        var faults = IFollowerLogFaultHooks.Mock(MockBehavior.Strict);
+        _ = faults.OnFrameWritten();
+        _ = faults.OnFramesScheduling();
+        _ = faults.OnFlushed();
+        _ = faults.OnCommitAdvanced();
+        _ = faults.OnBeforeMemoryApply();
+        _ = faults.OnMetaPublishing().Callback(() =>
         {
             if (++publishes == failAt)
                 throw new IOException("simulated failure at a completion publish.");
         });
 
-        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System))
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Object, TimeProvider.System))
         {
             await log.OpenAsync(cancellationToken);
             _ = await log.AcceptBootstrapOfferAsync(Fingerprint, 1UL, cancellationToken);

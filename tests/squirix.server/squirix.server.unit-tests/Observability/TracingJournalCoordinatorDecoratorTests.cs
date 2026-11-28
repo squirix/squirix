@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
@@ -18,6 +17,9 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Arguments;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Observability;
 
@@ -36,22 +38,22 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
     public async Task NonKeyOperationsKeepNullContext(bool tracingEnabled, CancellationToken cancellationToken)
     {
         var calls = new List<(JournalOperationKind Kind, JournalOperationTraceContext? Context)>();
-        var tracerExpectations = new IJournalOperationTracerCreateExpectations();
-        _ = tracerExpectations.Setups.IsEnabled.Gets().ReturnValue(tracingEnabled);
+        var tracerExpectations = IJournalOperationTracer.Mock(MockBehavior.Strict);
+        _ = tracerExpectations.IsEnabled.Returns(tracingEnabled);
         if (tracingEnabled)
         {
-            _ = tracerExpectations.Setups.Begin(Arg.Any<JournalOperationKind>(), Arg.Any<JournalOperationTraceContext?>())
-                                  .Callback((kind, context) =>
+            _ = tracerExpectations.Begin(Arg.Any<JournalOperationKind>(), Arg.Any<JournalOperationTraceContext?>())
+                                  .Returns((kind, context) =>
                                    {
                                        calls.Add((kind, context));
                                        return SharedScope;
                                    });
         }
 
-        var innerExpectations = new IJournalCoordinatorCreateExpectations();
-        _ = innerExpectations.Setups.WaitForStartupAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
-        _ = innerExpectations.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
-        await using var journal = new TracingJournalCoordinatorDecorator(innerExpectations.Instance(), tracerExpectations.Instance());
+        var innerExpectations = IJournalCoordinator.Mock(MockBehavior.Strict);
+        _ = innerExpectations.WaitForStartupAsync(Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
+        _ = innerExpectations.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
+        await using var journal = new TracingJournalCoordinatorDecorator(innerExpectations.Object, tracerExpectations.Object);
 
         await journal.WaitForStartupAsync(cancellationToken);
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
@@ -113,12 +115,12 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
                 spans.Add(activity);
         };
         ActivitySource.AddActivityListener(listener);
-        var innerExpectations = new IJournalCoordinatorCreateExpectations();
-        _ = innerExpectations.Setups.IsJournalGroupCommitEnabled.Gets().ReturnValue(false);
-        _ = innerExpectations.Setups.AppendPutAsync(Arg.Any<JournalAppendContext>(), Arg.Any<CacheKey>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
-                             .ReturnValue(ValueTask.CompletedTask);
-        _ = innerExpectations.Setups.AppendRemoveAsync(Arg.Any<JournalAppendContext>(), Arg.Any<CacheKey>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
-        await using var journal = new TracingJournalCoordinatorDecorator(innerExpectations.Instance(), new OpenTelemetryJournalOperationTracer());
+        var innerExpectations = IJournalCoordinator.Mock(MockBehavior.Strict);
+        _ = innerExpectations.IsJournalGroupCommitEnabled.Returns(false);
+        _ = innerExpectations.AppendPutAsync(Arg.Any<JournalAppendContext>(), Arg.Any<CacheKey>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+                             .ReturnsAsync(ValueTask.CompletedTask);
+        _ = innerExpectations.AppendRemoveAsync(Arg.Any<JournalAppendContext>(), Arg.Any<CacheKey>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
+        await using var journal = new TracingJournalCoordinatorDecorator(innerExpectations.Object, new OpenTelemetryJournalOperationTracer());
 
         await journal.AppendPutAsync(default, key, payload, cancellationToken);
         await journal.AppendRemoveAsync(default, key, cancellationToken);
@@ -139,18 +141,18 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
     {
         var calls = 0;
         var failure = new InvalidOperationException("append failed");
-        var tracerExpectations = new IJournalOperationTracerCreateExpectations();
-        _ = tracerExpectations.Setups.IsEnabled.Gets().ReturnValue(false);
-        var innerExpectations = new IJournalCoordinatorCreateExpectations();
-        _ = innerExpectations.Setups.AppendPutAsync(Arg.Any<JournalAppendContext>(), Arg.Any<CacheKey>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
-                             .Callback((_, _, _, _) =>
+        var tracerExpectations = IJournalOperationTracer.Mock(MockBehavior.Strict);
+        _ = tracerExpectations.IsEnabled.Returns(false);
+        var innerExpectations = IJournalCoordinator.Mock(MockBehavior.Strict);
+        _ = innerExpectations.AppendPutAsync(Arg.Any<JournalAppendContext>(), Arg.Any<CacheKey>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+                             .ReturnsAsync((_, _, _, _) =>
                               {
                                   calls++;
                                   return ValueTask.CompletedTask;
                               });
-        _ = innerExpectations.Setups.AppendRemoveAsync(Arg.Any<JournalAppendContext>(), Arg.Any<CacheKey>(), Arg.Any<CancellationToken>())
-                             .Callback((_, _, _) => ValueTask.FromException(failure));
-        await using var journal = new TracingJournalCoordinatorDecorator(innerExpectations.Instance(), tracerExpectations.Instance());
+        _ = innerExpectations.AppendRemoveAsync(Arg.Any<JournalAppendContext>(), Arg.Any<CacheKey>(), Arg.Any<CancellationToken>())
+                             .ReturnsAsync((_, _, _) => ValueTask.FromException(failure));
+        await using var journal = new TracingJournalCoordinatorDecorator(innerExpectations.Object, tracerExpectations.Object);
 
         await journal.AppendPutAsync(default, CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
         var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(journal.AppendRemoveAsync(default, CacheKey.Default("k"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -168,7 +170,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var core = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
-        var journal = new TracingJournalCoordinatorDecorator(core, new IJournalOperationTracerCreateExpectations().Instance());
+        var journal = new TracingJournalCoordinatorDecorator(core, IJournalOperationTracer.Mock(MockBehavior.Strict).Object);
 
         await journal.DisposeAsync();
         await core.AppendPutUnderGateAsync(CacheKey.Default("owner-key"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
@@ -186,7 +188,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var core = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
-        var journal = new TracingJournalCoordinatorDecorator(core, new IJournalOperationTracerCreateExpectations().Instance());
+        var journal = new TracingJournalCoordinatorDecorator(core, IJournalOperationTracer.Mock(MockBehavior.Strict).Object);
         var forwarded = 0;
         journal.OnAppended += (_, _) => Interlocked.Increment(ref forwarded);
 
@@ -244,9 +246,9 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
     {
         using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener();
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var innerExpectations = new IJournalCoordinatorCreateExpectations();
-        _ = innerExpectations.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(new ValueTask(release.Task));
-        await using var journal = new TracingJournalCoordinatorDecorator(innerExpectations.Instance(), new OpenTelemetryJournalOperationTracer());
+        var innerExpectations = IJournalCoordinator.Mock(MockBehavior.Strict);
+        _ = innerExpectations.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnsAsync(new ValueTask(release.Task));
+        await using var journal = new TracingJournalCoordinatorDecorator(innerExpectations.Object, new OpenTelemetryJournalOperationTracer());
         using var outer = ActivitySourceHolder.StartInternal("outer");
 
         var wait = journal.AwaitDurabilityCommitAsync(CancellationToken.None);
@@ -308,23 +310,23 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
     /// <returns>The mocked tracer.</returns>
     private static IJournalOperationTracer CreateRecordingTracer(List<(JournalOperationKind Kind, JournalOperationTraceContext Context)> beginCalls)
     {
-        var expectations = new IJournalOperationTracerCreateExpectations();
-        _ = expectations.Setups.IsEnabled.Gets().ReturnValue(true);
-        _ = expectations.Setups.Begin(Arg.Any<JournalOperationKind>(), Arg.Any<JournalOperationTraceContext?>())
-                        .Callback((kind, context) =>
+        var expectations = IJournalOperationTracer.Mock(MockBehavior.Strict);
+        _ = expectations.IsEnabled.Returns(true);
+        _ = expectations.Begin(Arg.Any<JournalOperationKind>(), Arg.Any<JournalOperationTraceContext?>())
+                        .Returns((kind, context) =>
                          {
                              if (context == null)
                                  return null;
                              beginCalls.Add((kind, context));
                              return SharedScope;
                          });
-        return expectations.Instance();
+        return expectations.Object;
     }
 
     private static IJournalOperationTraceScope CreateNullScope()
     {
-        var expectations = new IJournalOperationTraceScopeCreateExpectations();
-        _ = expectations.Setups.Dispose();
-        return expectations.Instance();
+        var expectations = IJournalOperationTraceScope.Mock(MockBehavior.Strict);
+        _ = expectations.Dispose();
+        return expectations.Object;
     }
 }

@@ -4,6 +4,8 @@ using Squirix.Server.Node.MemoryPressure;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Mocks;
+using TUnit.Mocks.Generated;
 
 namespace Squirix.Server.UnitTests.Memory;
 
@@ -19,10 +21,10 @@ public sealed class AdmissionPolicyTests
     [Arguments(long.MinValue)]
     public async Task NonGrowingWriteDoesNotReadUsage(long growth)
     {
-        var accounting = new IMemoryUsageAccountingCreateExpectations();
+        var accounting = IMemoryUsageAccounting.Mock(MockBehavior.Strict);
         var evaluator = new StateEvaluator(new PressureOptions { MaxEstimatedCacheBytes = 1000 });
 
-        var decision = AdmissionPolicy.Evaluate(evaluator, accounting.Instance(), growth, false);
+        var decision = AdmissionPolicy.Evaluate(evaluator, accounting.Object, growth, false);
 
         _ = await Assert.That(decision).IsEqualTo(AdmissionRejection.None);
     }
@@ -31,11 +33,11 @@ public sealed class AdmissionPolicyTests
     [Test]
     public async Task ProjectedGrowthSaturatesAtLongMax()
     {
-        var accounting = new IMemoryUsageAccountingCreateExpectations();
-        _ = accounting.Setups.ReadEstimatedBytes().ReturnValue(1024);
+        var accounting = IMemoryUsageAccounting.Mock(MockBehavior.Strict);
+        _ = accounting.ReadEstimatedBytes().Returns(1024);
         var evaluator = new StateEvaluator(new PressureOptions { MaxEstimatedCacheBytes = long.MaxValue, CriticalPressureThresholdPercent = 100 });
 
-        var decision = AdmissionPolicy.Evaluate(evaluator, accounting.Instance(), long.MaxValue, false);
+        var decision = AdmissionPolicy.Evaluate(evaluator, accounting.Object, long.MaxValue, false);
 
         _ = await Assert.That(decision).IsEqualTo(AdmissionRejection.EstimatedLimit);
     }

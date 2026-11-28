@@ -450,7 +450,7 @@ internal static class ReplicaOwnerTestKit
     }
 
     /// <summary>In-memory local cache double that records the key of every applied write, in order.</summary>
-    /// <remarks>A stateful fake: the leader reads a key back before deciding a conditional add, so the double has to hold what it wrote, which a Rocks mock without state cannot model.</remarks>
+    /// <remarks>A stateful fake: the leader reads a key back before deciding a conditional add, so the double has to hold what it wrote, which a stateless mock cannot model.</remarks>
     internal sealed class StubCache : ILogicalNamespacedCache<StoredValue>, ILocalCacheRawReader<StoredValue>
     {
         private readonly ConcurrentDictionary<string, NodeCacheEntry<StoredValue>> _entries = new(StringComparer.Ordinal);

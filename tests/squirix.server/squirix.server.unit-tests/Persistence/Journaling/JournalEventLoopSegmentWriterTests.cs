@@ -109,7 +109,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
     {
         var options = new PersistenceOptions { DataDir = Dir, JournalMaxTotalBytesMb = 1 };
         var counter = new MutableInt32();
-        var host = RocksDoubles.CreateEventLoopHost(counter);
+        var host = TestDoubles.CreateEventLoopHost(counter);
         var registry = host.State.PendingAppends;
         using var ring = new BoundedJournalRing(4);
         using var segmentWriter = new FakeSegmentWriter();
@@ -163,7 +163,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
     {
         var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1, JournalMaxSegmentCount = 2 };
         var counter = new MutableInt32();
-        var host = RocksDoubles.CreateEventLoopHost(counter);
+        var host = TestDoubles.CreateEventLoopHost(counter);
         var registry = host.State.PendingAppends;
         using var ring = new BoundedJournalRing(4);
 
@@ -339,7 +339,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         var firstCheck = new TaskCompletionSource<Thread>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var completeRoll = new ManualResetEventSlim();
         var repeated = 0;
-        var host = RocksDoubles.CreateEventLoopHost(checkFailure: ObserveCheck);
+        var host = TestDoubles.CreateEventLoopHost(checkFailure: ObserveCheck);
         using var ring = new BoundedJournalRing(4, false);
         using var writer = JournalSegmentWriterFactory.Create();
         var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1, JournalMaxSegmentCount = 4 };
@@ -498,7 +498,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         const int batchCapacityBytes = 200_000;
         var options = new PersistenceOptions { DataDir = Dir };
         var counter = new MutableInt32();
-        var host = RocksDoubles.CreateEventLoopHost(counter);
+        var host = TestDoubles.CreateEventLoopHost(counter);
         var registry = host.State.PendingAppends;
         var batch = new JournalWriteBatchBuffer(batchCapacityBytes);
         var expected = new byte[JournalFraming.FileHeaderSize + (frameLength * frameCount)];
@@ -561,7 +561,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
     {
         var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1, JournalMaxSegmentCount = 4 };
         var counter = new MutableInt32();
-        var host = RocksDoubles.CreateEventLoopHost(counter);
+        var host = TestDoubles.CreateEventLoopHost(counter);
         var registry = host.State.PendingAppends;
         using var ring = new BoundedJournalRing(4);
 
@@ -602,7 +602,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
     {
         var options = new PersistenceOptions { DataDir = Path.Join(Dir, "missing") };
         var counter = new MutableInt32();
-        var host = RocksDoubles.CreateEventLoopHost(counter);
+        var host = TestDoubles.CreateEventLoopHost(counter);
         var registry = host.State.PendingAppends;
         using var segmentWriter = JournalSegmentWriterFactory.Create();
         using var state = new FakeEventLoopState(host.Host, options, new JournalWriteBatchBuffer(), 0, segmentWriter);
@@ -687,7 +687,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
     {
         options ??= new PersistenceOptions { JournalMaxTotalBytesMb = maxTotalBytesMb };
         var counter = new MutableInt32();
-        var host = RocksDoubles.CreateEventLoopHost(counter);
+        var host = TestDoubles.CreateEventLoopHost(counter);
         host.State.OnPipelineFailed = onPipelineFailed;
         var batch = new JournalWriteBatchBuffer(batchCapacityBytes);
         var state = new FakeEventLoopState(host.Host, options, batch, totalBytes, segmentWriter) { GroupCommit = groupCommit };
@@ -726,7 +726,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
         var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1, JournalMaxSegmentCount = 4 };
         var counter = new MutableInt32();
-        var host = RocksDoubles.CreateEventLoopHost(counter);
+        var host = TestDoubles.CreateEventLoopHost(counter);
         var registry = host.State.PendingAppends;
         using var ring = new BoundedJournalRing(4);
         using var segmentWriter = JournalSegmentWriterFactory.Create();
