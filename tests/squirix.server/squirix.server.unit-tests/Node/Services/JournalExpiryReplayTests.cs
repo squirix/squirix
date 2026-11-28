@@ -47,7 +47,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
     public async Task AddReplaysWriteTimeDeadline(CancellationToken cancellationToken)
     {
         var written = await WriteAsync(
-            static async (cache, ct) => _ = await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: Ttl), ct),
+            static async (cache, ct) => _ = await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: Ttl), null, ct),
             TimeSpan.Zero,
             cancellationToken);
 
@@ -160,7 +160,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
     public async Task ReplayJudgesExpiryOnServerClock(CancellationToken cancellationToken)
     {
         var written = await WriteAsync(
-            static (cache, ct) => cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: Ttl), ct),
+            static (cache, ct) => cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: Ttl), null, ct),
             TimeSpan.Zero,
             cancellationToken);
 
@@ -178,7 +178,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
     public async Task SetReplaysWriteTimeDeadline(CancellationToken cancellationToken)
     {
         var written = await WriteAsync(
-            static (cache, ct) => cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: Ttl), ct),
+            static (cache, ct) => cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: Ttl), null, ct),
             TimeSpan.Zero,
             cancellationToken);
 
@@ -193,8 +193,8 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
         var written = await WriteAsync(
             static async (cache, ct) =>
             {
-                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v1", expiration: Ttl), ct);
-                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v2"), ct);
+                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v1", expiration: Ttl), null, ct);
+                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v2"), null, ct);
             },
             PastTtl,
             cancellationToken);
@@ -238,7 +238,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
         var writeStart = clock.GetUtcNow().UtcDateTime;
         await using (var session = await Kit.OpenAsync(clock, cancellationToken))
         {
-            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: Ttl), cancellationToken);
+            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: Ttl), null, cancellationToken);
             clock.Advance(PastTtl);
 
             _ = await Assert.That(session.Physical.ExpiredKeys.RemoveExpired()).IsEqualTo(1);
@@ -259,8 +259,8 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
         var written = await WriteAsync(
             static async (cache, ct) =>
             {
-                _ = await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), ct);
-                _ = await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, ct);
+                _ = await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), null, ct);
+                _ = await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, null, ct);
             },
             TimeSpan.Zero,
             cancellationToken);
@@ -276,8 +276,8 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
         var written = await WriteAsync(
             static async (cache, ct) =>
             {
-                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v1", expiration: Ttl), ct);
-                _ = await cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, "v2", ct);
+                await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v1", expiration: Ttl), null, ct);
+                _ = await cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, "v2", null, ct);
             },
             TimeSpan.Zero,
             cancellationToken);

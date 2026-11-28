@@ -89,7 +89,7 @@ public sealed class ReplicaFollowerMemoryTests : IsolatedStorageTestBase
         await gateway.AppendedAsync("n2", 6).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         await copy.CatchUpAsync(followers.Logs["n2"], cancellationToken);
         var appliedBytes = stats.EstimatedBytes;
-        var removed = await admission.RemoveAsync(NewOperationId(), CacheName, "k1", cancellationToken);
+        var removed = await admission.RemoveAsync(NewOperationId(), CacheName, "k1", null, cancellationToken);
 
         _ = await Assert.That(filledEntries).IsGreaterThan(0);
         _ = await Assert.That(stats.EntryCount).IsGreaterThan(filledEntries);
@@ -113,7 +113,7 @@ public sealed class ReplicaFollowerMemoryTests : IsolatedStorageTestBase
     private static int CountOf(ILocalCacheStats stats) => stats.EntryCount;
 
     private static Task SetLedKeyAsync(MemoryAdmissionCacheDecorator<StoredValue> admission, CancellationToken cancellationToken) =>
-        admission.SetEntryAsync(NewOperationId(), CacheName, "led", Entry("led"), cancellationToken).AsTask();
+        admission.SetEntryAsync(NewOperationId(), CacheName, "led", Entry("led"), null, cancellationToken).AsTask();
 
     private static async Task<long> SumOfLiveEntriesAsync(PhysicalCache<StoredValue> cache, CacheEntrySizeEstimator<StoredValue> estimator, CancellationToken cancellationToken)
     {

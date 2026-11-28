@@ -8,7 +8,6 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
-using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
@@ -271,10 +270,7 @@ internal sealed class ReplicaGroupApplier
 
         // The group log already made the record durable. The node journal flush precedes the durable applied index.
         if (effect != ReplicaEffectKind.NoCacheEffect)
-        {
-            using (ReplicaApplyContext.Enter())
-                await ReplicaCacheApplier.ExecuteAsync(_local, record, effect, entry, encodedLength, cancellationToken).ConfigureAwait(false);
-        }
+            await ReplicaCacheApplier.ExecuteAsync(_local, record, effect, entry, encodedLength, true, cancellationToken).ConfigureAwait(false);
 
         outcomes?.RecordCommittedOutcome(in outcome);
         _advanced.Notify(logIndex);

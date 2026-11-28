@@ -23,7 +23,7 @@ using Squirix.Transport.Wire.Codec;
 namespace Squirix.Server.Cluster.Transport;
 
 /// <summary>Pools mutually authenticated peer streams, reserving each one for a single request and its reply.</summary>
-internal sealed class NativePeerClient : IPeerClient, IDisposable
+internal sealed class NativePeerClient : IPeerDeadlineClient, IDisposable
 {
     private static readonly TimeSpan ElectionConnectTimeout = TimeSpan.FromSeconds(3);
 
@@ -74,11 +74,15 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
     }
 
     public Task<T> SendAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, CancellationToken cancellationToken)
+        where T : WireMessage =>
+        SendWithDeadlineAsync(operation, request, parser, null, cancellationToken);
+
+    public Task<T> SendWithDeadlineAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, ServerDeadlineBudget? budget, CancellationToken cancellationToken)
         where T : WireMessage
     {
         return operation == PeerOperation.TransferReplicaState
-            ? TransferAsync(operation, request, parser, cancellationToken)
-            : ExchangeAsync(operation, request, parser, null, cancellationToken);
+            ? TransferAsync(operation, request, parser, budget, cancellationToken)
+            : ExchangeAsync(operation, request, parser, null, budget, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -89,7 +93,7 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         (TimeSpan Timeout, TimeProvider Clock) replyBudget,
         CancellationToken cancellationToken)
         where T : WireMessage =>
-        ExchangeAsync(operation, request, parser, replyBudget, cancellationToken);
+        ExchangeAsync(operation, request, parser, replyBudget, null, cancellationToken);
 
     internal static SslClientAuthenticationOptions CreateTlsOptions(string host, string peer, MtlsCertificate material, PeerHandshakeVerifier verifier)
     {
@@ -211,12 +215,6 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         return 1;
     }
 
-    private static long? RemainingBudget()
-    {
-        var ticks = ServerRpcDeadlineContext.CurrentBudget?.Remaining.Ticks;
-        return ticks <= 0 ? throw new ServerCallException(FrameStatus.DeadlineExceeded, "Request deadline exceeded.") : ticks;
-    }
-
     private ITimer CreateIdleMonitor()
     {
         var interval = TimeSpan.FromSeconds(1);
@@ -237,10 +235,11 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         WireMessage request,
         WireParser<T> parser,
         (TimeSpan Timeout, TimeProvider Clock)? replyBudget,
+        ServerDeadlineBudget? budget,
         CancellationToken cancellationToken)
         where T : WireMessage
     {
-        _ = RemainingBudget();
+        _ = PeerDeadline.RemainingBudget(budget);
         var size = request.CalculateSize();
         if (size > Frames.MaxExtendedBodyBytes)
             throw new ServerCallException(FrameStatus.ResourceExhausted, "The request exceeds the peer message limit.");
@@ -260,8 +259,8 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
             using var exchange = replyTimeout == null ? null : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, replyTimeout.Token);
             var token = exchange?.Token ?? cancellationToken;
 
-            var budget = RemainingBudget();
-            var frame = new PeerFrames.Request(size, budget ?? -1, operation, _fingerprint.Length, parentBytes, stateBytes, _fingerprintIsDigest, binaryParent);
+            var ticks = PeerDeadline.RemainingBudget(budget);
+            var frame = new PeerFrames.Request(size, ticks ?? -1, operation, _fingerprint.Length, parentBytes, stateBytes, _fingerprintIsDigest, binaryParent);
             var metadata = new RequestMetadata(parent, state, context);
             token.ThrowIfCancellationRequested();
             stream.RequestStarted = Stopwatch.GetTimestamp();
@@ -462,14 +461,14 @@ internal sealed class NativePeerClient : IPeerClient, IDisposable
         return null;
     }
 
-    private async Task<T> TransferAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, CancellationToken cancellationToken)
+    private async Task<T> TransferAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, ServerDeadlineBudget? budget, CancellationToken cancellationToken)
         where T : WireMessage
     {
-        _ = RemainingBudget();
+        _ = PeerDeadline.RemainingBudget(budget);
         await _transfers.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return await ExchangeAsync(operation, request, parser, null, cancellationToken).ConfigureAwait(false);
+            return await ExchangeAsync(operation, request, parser, null, budget, cancellationToken).ConfigureAwait(false);
         }
         finally
         {

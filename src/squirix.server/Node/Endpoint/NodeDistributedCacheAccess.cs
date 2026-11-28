@@ -37,25 +37,25 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
     }
 
     /// <inheritdoc />
-    public async ValueTask<ReadOnlyMemory<byte>?> AccessAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken)
+    public async ValueTask<ReadOnlyMemory<byte>?> AccessAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken, ICacheRequestContext? request = null)
     {
         var operation = refresh ? CacheOperationNames.Touch : CacheOperationNames.Get;
-        var (admission, lease) = await InboundAdmissionScope.AcquireIfNeededAsync(_gate, CacheOperationNames.CacheTransport, operation, _clients, cancellationToken).ConfigureAwait(false);
+        var (admission, lease) = await InboundAdmission.AcquireIfNeededAsync(_gate, CacheOperationNames.CacheTransport, operation, _clients, request, cancellationToken).ConfigureAwait(false);
         if (!admission.IsAccepted)
             throw ServerOpContract.TooManyRequests(admission.RejectReason ?? "unknown").ToServerCallException();
 
         using (lease)
         {
             if (_local is not ReplicatedCache replicated)
-                return await AccessSingleAsync(cacheName, key, refresh, cancellationToken).ConfigureAwait(false);
+                return await AccessSingleAsync(cacheName, key, refresh, request?.LogScope, cancellationToken).ConfigureAwait(false);
 
             if (refresh)
                 operationId = RpcMutationContracts.RequireOperationId(operationId);
-            return await replicated.AccessDistributedAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false);
+            return await replicated.AccessDistributedAsync(operationId, cacheName, key, refresh, cancellationToken, request).ConfigureAwait(false);
         }
     }
 
-    private async ValueTask<ReadOnlyMemory<byte>?> AccessSingleAsync(string cacheName, string key, bool refresh, CancellationToken cancellationToken)
+    private async ValueTask<ReadOnlyMemory<byte>?> AccessSingleAsync(string cacheName, string key, bool refresh, object? scope, CancellationToken cancellationToken)
     {
         var entry = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (entry == null)
@@ -66,7 +66,7 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
         if (policy.SlidingTicks != null && !_physical.CanReadWithoutRenewal(entry))
         {
             result = _durable is { } durable
-                ? await durable.DistributedAccess.AccessDistributedAsync(string.Empty, cacheName, key, refresh, cancellationToken).ConfigureAwait(false)
+                ? await durable.DistributedAccess.AccessDistributedAsync(string.Empty, cacheName, key, refresh, cancellationToken, scope).ConfigureAwait(false)
                 : _physical.AccessDistributed(new CacheKey(cacheName, key), refresh, cancellationToken);
         }
 

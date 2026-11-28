@@ -33,7 +33,7 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
     public async Task AbsentKeyReturnsAddedResult()
     {
         var api = ICacheApi<StoredValue>.Mock(MockBehavior.Strict);
-        _ = api.AddOrGetAsync(string.Empty, "k", Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
+        _ = api.AddOrGetAsync(string.Empty, "k", Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>(), Arg.Any<ICacheRequestContext?>())
                .ReturnsAsync(ValueTask.FromResult(new NodeCacheAddOrGetResult<StoredValue>(true, default)));
 
         var response = await CreateAdapter(api.Object).Mutations.GetOrAddAsync(CreateRequest(), CancellationToken.None);
@@ -47,7 +47,7 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
     public async Task PresentKeyReturnsItsValue()
     {
         var api = ICacheApi<StoredValue>.Mock(MockBehavior.Strict);
-        _ = api.AddOrGetAsync(string.Empty, "k", Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
+        _ = api.AddOrGetAsync(string.Empty, "k", Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>(), Arg.Any<ICacheRequestContext?>())
                .ReturnsAsync(ValueTask.FromResult(new NodeCacheAddOrGetResult<StoredValue>(false, new NodeCacheValueResult<StoredValue>(true, StoredValue.FromText("existing")))));
 
         var response = await CreateAdapter(api.Object).Mutations.GetOrAddAsync(CreateRequest(), CancellationToken.None);

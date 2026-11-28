@@ -45,8 +45,8 @@ public sealed class AdmissionObjectEntryTests : DisposableServerUnitTestBase
         var cache = new MemoryAdmissionCacheDecorator<StoredValue>(inner, gate, estimator);
         var entry = new NodeCacheEntry<StoredValue> { Value = StoredValue.FromJson(System.Text.Encoding.UTF8.GetBytes($$"""{"Data":"{{new string('y', 250_000)}}"}""")), Version = 1 };
 
-        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "a", entry, cancellationToken)).IsTrue();
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException, bool>(cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "b", entry, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "a", entry, null, cancellationToken)).IsTrue();
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException, bool>(cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "b", entry, null, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
     }
 
@@ -68,7 +68,7 @@ public sealed class AdmissionObjectEntryTests : DisposableServerUnitTestBase
             readStored: static (_, _, _) => throw new InvalidOperationException("Admission must not read the entry."),
             hasMemberPressure: static (_, _) => true);
 
-        _ = await Assert.That(await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, "a", cancellationToken)).IsTrue();
+        _ = await Assert.That(await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, "a", null, cancellationToken)).IsTrue();
         var stored = await inner.GetEntryAsync(CacheName, "a", cancellationToken);
         _ = await Assert.That(stored!.ExpiresUtc).IsNull();
     }

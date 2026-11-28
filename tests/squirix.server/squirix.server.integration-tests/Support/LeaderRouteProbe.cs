@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.Utils;
 using Squirix.Transport.Wire.Cache;
@@ -200,7 +201,7 @@ internal sealed class LeaderRouteProbe
 
     /// <summary>A peer client that records the forwarded writes and passes reads through unrecorded.</summary>
     [Immutable]
-    private sealed class RecordingClient : IPeerClient
+    private sealed class RecordingClient : IPeerDeadlineClient
     {
         private readonly IPeerClient _inner;
         private readonly RecordingPool _pool;
@@ -214,11 +215,15 @@ internal sealed class LeaderRouteProbe
         }
 
         public Task<T> SendAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, CancellationToken cancellationToken)
+            where T : WireMessage =>
+            SendWithDeadlineAsync(operation, request, parser, null, cancellationToken);
+
+        public Task<T> SendWithDeadlineAsync<T>(PeerOperation operation, WireMessage request, WireParser<T> parser, ServerDeadlineBudget? budget, CancellationToken cancellationToken)
             where T : WireMessage
         {
             if (request is SetEntryAsyncRequest set)
                 _pool.Record(_target, set.OperationId);
-            return _inner.SendAsync(operation, request, parser, cancellationToken);
+            return PeerDeadline.SendAsync(_inner, operation, request, parser, budget, cancellationToken);
         }
     }
 }

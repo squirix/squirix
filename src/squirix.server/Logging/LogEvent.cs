@@ -51,11 +51,14 @@ internal sealed class LogEvent
 
     internal int FieldCount => _names.Length;
 
-    internal void Write<T>(IServerLogger logger, ServerLogLevel level, Exception? exception, T values)
+    internal void Write<T>(IServerLogger logger, ServerLogLevel level, Exception? exception, T values, object? scope = null)
         where T : struct, ITuple
     {
         var state = new LogEventState<T>(this, values);
-        logger.Log(level, Id, state, exception, static (entry, _) => entry.ToString());
+        if (scope == null)
+            logger.Log(level, Id, state, exception, static (entry, _) => entry.ToString());
+        else
+            logger.LogWithScope(level, Id, state, exception, static (entry, _) => entry.ToString(), scope);
     }
 
     internal string FieldName(int index) => _names[index];

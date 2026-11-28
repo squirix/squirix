@@ -9,6 +9,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Logging;
 using Squirix.Server.Node.App;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Logging;
 using Squirix.Server.Threading;
@@ -107,7 +108,8 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         var log = new LeakRecordingLogger();
         await using var journal = await StallableJournal.CreateAsync(Dir, groupCommit, ShutdownBudget, NullLogger.Instance, cancellationToken);
         var memory = new AppliedKeys();
-        var put = StartStuckPutAsync(journal, memory, log, cancellationToken);
+        var scope = Correlation.CreateScopeState(null, "node-a", "/cache/SetEntry");
+        var put = StartStuckPutAsync(journal, memory, log, cancellationToken, scope);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
         var (_, putError) = await DisposeOverStuckFsyncAsync(journal, put, null, cancellationToken);
@@ -118,6 +120,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         _ = await Assert.That(transport?.StatusCode).IsEqualTo(FrameStatus.Unavailable);
         _ = await Assert.That(transport?.Message).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
         _ = await Assert.That(log.Find(CommitUnknownEventId)?.Level).IsEqualTo(ServerLogLevel.Warning);
+        _ = await Assert.That(log.CommitScope).IsSameReferenceAs(scope);
         _ = await Assert.That(log.Cause(CommitUnknownEventId)).IsTypeOf<ObjectDisposedException>();
         _ = await Assert.That(memory.Snapshot).IsEmpty();
         _ = await Assert.That(replayed).IsEqualTo(KeyA);
@@ -449,11 +452,12 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     /// <param name="memory">Memory model the put applies to.</param>
     /// <param name="log">Logger of the executor running the put.</param>
     /// <param name="cancellationToken">Caller cancellation token.</param>
+    /// <param name="scope">Request correlation fields.</param>
     /// <returns>The put, stuck in its durability wait once the stall is entered.</returns>
-    private static Task<int> StartStuckPutAsync(StallableJournal journal, AppliedKeys memory, IServerLogger<DurableMutationExecutor> log, CancellationToken cancellationToken)
+    private static Task<int> StartStuckPutAsync(StallableJournal journal, AppliedKeys memory, IServerLogger<DurableMutationExecutor> log, CancellationToken cancellationToken, object? scope = null)
     {
         journal.Writer.Flush.Arm();
-        return memory.PutAsync(new DurableMutationExecutor(journal.Journal, log), journal.Journal, "a", cancellationToken);
+        return memory.PutAsync(new DurableMutationExecutor(journal.Journal, log), journal.Journal, "a", "a", cancellationToken, false, scope);
     }
 
     /// <summary>Maps a caller-visible failure to the gRPC status the transport boundary sends, or <see langword="null" /> when it is no stable contract.</summary>
@@ -469,6 +473,8 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
 
         private readonly ConcurrentQueue<(int EventId, ServerLogLevel Level, int? FaultedWaiters, Exception? Cause)> _events = new();
 
+        internal object? CommitScope { get; private set; }
+
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
 
@@ -476,6 +482,13 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
 
         public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
             _events.Enqueue((eventId.Id, logLevel, FaultedWaiters(state), exception));
+
+        public void LogWithScope<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter, object? scope)
+        {
+            if (eventId.Id == CommitUnknownEventId)
+                CommitScope = scope;
+            Log(logLevel, eventId, state, exception, formatter);
+        }
 
         internal Exception? Cause(int eventId)
         {

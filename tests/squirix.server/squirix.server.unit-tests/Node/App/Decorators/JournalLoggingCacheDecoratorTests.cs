@@ -37,10 +37,10 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
     public async Task AddSkipsJournalWhenKeyExists(CancellationToken cancellationToken)
     {
         await using var harness = await CreateHarnessAsync(cancellationToken);
-        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), null, cancellationToken)).IsTrue();
         var before = harness.Journal.AppendedOps;
 
-        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v2"), cancellationToken)).IsFalse();
+        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v2"), null, cancellationToken)).IsFalse();
         _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before);
     }
 
@@ -50,24 +50,24 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
     public async Task PayloadPrepareUpdateDelegatesToJournal(CancellationToken cancellationToken)
     {
         await using var harness = await CreateHarnessAsync(cancellationToken);
-        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), null, cancellationToken)).IsTrue();
         var prepare = new JournalPayloadPrepareCacheDecorator<string>(harness.Cache);
         var before = harness.Journal.AppendedOps;
 
-        _ = await Assert.That(await prepare.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", cancellationToken)).IsTrue();
+        _ = await Assert.That(await prepare.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", null, cancellationToken)).IsTrue();
         _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before + 1);
     }
 
     /// <summary>Local-owner remove appends a journal record then applies memory.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RemoveAsyncLocalOwnerAppendsJournal(CancellationToken cancellationToken)
+    public async Task LocalOwnerRemoveAppendsJournal(CancellationToken cancellationToken)
     {
         await using var harness = await CreateHarnessAsync(cancellationToken);
-        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v"), cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v"), null, cancellationToken)).IsTrue();
         var before = harness.Journal.AppendedOps;
 
-        var removed = await harness.Cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, "k", cancellationToken);
+        var removed = await harness.Cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, "k", null, cancellationToken);
 
         _ = await Assert.That(removed).IsTrue();
         _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before + 1);
@@ -76,12 +76,12 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
     /// <summary>Local-owner set appends a put journal record.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SetEntryAsyncLocalOwnerAppendsJournal(CancellationToken cancellationToken)
+    public async Task LocalOwnerSetEntryAppendsJournal(CancellationToken cancellationToken)
     {
         await using var harness = await CreateHarnessAsync(cancellationToken);
         var before = harness.Journal.AppendedOps;
 
-        await harness.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v"), cancellationToken);
+        await harness.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v"), null, cancellationToken);
 
         _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before + 1);
         _ = await Assert.That(harness.Calls.Set).IsEqualTo(1);
@@ -90,13 +90,13 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
     /// <summary>Local-owner touch appends one put record holding the touched entry.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task TouchAsyncLocalOwnerAppendsJournal(CancellationToken cancellationToken)
+    public async Task LocalOwnerTouchAppendsJournal(CancellationToken cancellationToken)
     {
         await using var harness = await CreateHarnessAsync(cancellationToken);
-        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v"), cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v"), null, cancellationToken)).IsTrue();
         var before = harness.Journal.AppendedOps;
 
-        _ = await Assert.That(await harness.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, "k", TimeSpan.FromMinutes(1), cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, "k", TimeSpan.FromMinutes(1), null, cancellationToken)).IsTrue();
         _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before + 1);
 
         var (operation, journaled) = ReadLastRecord(harness.Dir, cancellationToken);
@@ -114,11 +114,11 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
     {
         await using var harness = await CreateHarnessAsync(cancellationToken);
         var withDeadline = new NodeCacheEntry<string>("v", expiresUtc: DateTime.UtcNow.AddHours(1));
-        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", withDeadline, cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", withDeadline, null, cancellationToken)).IsTrue();
 
-        _ = await Assert.That(await harness.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, "k", TimeSpan.FromHours(2), cancellationToken)).IsTrue();
-        _ = await Assert.That(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "w", cancellationToken)).IsTrue();
-        _ = await Assert.That(await harness.Cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, "k", cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, "k", TimeSpan.FromHours(2), null, cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "w", null, cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, "k", null, cancellationToken)).IsTrue();
 
         var callsBeforeRead = harness.Calls.GetEntry;
         var entry = await harness.Inner.GetEntryAsync(CacheName, "k", cancellationToken);
@@ -135,7 +135,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         await using var harness = await CreateHarnessAsync(cancellationToken);
         var before = harness.Journal.AppendedOps;
 
-        _ = await Assert.That(await harness.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, "missing", TimeSpan.FromMinutes(1), cancellationToken)).IsFalse();
+        _ = await Assert.That(await harness.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, "missing", TimeSpan.FromMinutes(1), null, cancellationToken)).IsFalse();
         _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before);
     }
 
@@ -145,10 +145,10 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
     public async Task PersistWithoutDeadlineAppendsNoJournal(CancellationToken cancellationToken)
     {
         await using var harness = await CreateHarnessAsync(cancellationToken);
-        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v"), cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v"), null, cancellationToken)).IsTrue();
         var before = harness.Journal.AppendedOps;
 
-        _ = await Assert.That(await harness.Cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, "k", cancellationToken)).IsFalse();
+        _ = await Assert.That(await harness.Cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, "k", null, cancellationToken)).IsFalse();
         _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before);
     }
 
@@ -160,7 +160,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         await using var harness = await CreateHarnessAsync(cancellationToken);
         var before = harness.Journal.AppendedOps;
 
-        _ = await Assert.That(await harness.Cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, "missing", cancellationToken)).IsFalse();
+        _ = await Assert.That(await harness.Cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, "missing", null, cancellationToken)).IsFalse();
         _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before);
     }
 
@@ -171,10 +171,10 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
     {
         await using var harness = await CreateHarnessAsync(cancellationToken);
         var entry = new NodeCacheEntry<string>("v", expiresUtc: DateTime.UtcNow.AddHours(1));
-        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", entry, cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", entry, null, cancellationToken)).IsTrue();
         var before = harness.Journal.AppendedOps;
 
-        _ = await Assert.That(await harness.Cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, "k", cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, "k", null, cancellationToken)).IsTrue();
         _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before + 1);
         _ = await Assert.That((await harness.Inner.GetEntryAsync(CacheName, "k", cancellationToken))!.ExpiresUtc).IsNull();
     }
@@ -185,10 +185,10 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
     public async Task UpdateExistingKeyAppendsAndApplies(CancellationToken cancellationToken)
     {
         await using var harness = await CreateHarnessAsync(cancellationToken);
-        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), null, cancellationToken)).IsTrue();
         var before = harness.Journal.AppendedOps;
 
-        _ = await Assert.That(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", null, cancellationToken)).IsTrue();
         _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before + 1);
 
         var updated = await harness.Inner.GetValueAsync(CacheName, "k", cancellationToken);
@@ -204,7 +204,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         await using var harness = await CreateHarnessAsync(cancellationToken);
         var before = harness.Journal.AppendedOps;
 
-        _ = await Assert.That(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "missing", "v", cancellationToken)).IsFalse();
+        _ = await Assert.That(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "missing", "v", null, cancellationToken)).IsFalse();
         _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before);
     }
 
@@ -214,11 +214,11 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
     public async Task UpdateSkipsJournalWhenKeyVanishes(CancellationToken cancellationToken)
     {
         await using var harness = await CreateHarnessAsync(cancellationToken);
-        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), null, cancellationToken)).IsTrue();
         _ = await Assert.That(await harness.Inner.RemoveAsync(UnitMutationOpIds.Default, CacheName, "k", cancellationToken)).IsTrue();
         var before = harness.Journal.AppendedOps;
 
-        _ = await Assert.That(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", cancellationToken)).IsFalse();
+        _ = await Assert.That(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", null, cancellationToken)).IsFalse();
         _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before);
     }
 

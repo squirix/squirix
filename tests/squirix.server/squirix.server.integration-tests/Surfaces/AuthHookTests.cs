@@ -116,7 +116,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
             _ = services.AddSingleton(probe);
             _ = services.AddScoped(static provider => new EventScope(provider.GetRequiredService<HookProbe>()));
             _ = services.AddScoped<IConnectionTokenObserver>(static provider => new ScopedEvents(provider.GetRequiredService<HookProbe>(), provider.GetRequiredService<EventScope>()));
-            _ = services.AddScoped<IBinaryAuthorizationHook>(static provider => new RequestClaims(provider.GetRequiredService<HookProbe>(), provider.GetRequiredService<BinaryRequestAccessor>()));
+            _ = services.AddScoped<IBinaryAuthorizationHook>(static provider => new RequestClaims(provider.GetRequiredService<HookProbe>()));
             _ = services.AddSingleton(static provider => new BinaryCallObserver(new ClaimProbeInterceptor(provider.GetRequiredService<HookProbe>()).Observe));
         },
     };
@@ -226,12 +226,10 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
     private sealed class RequestClaims : IBinaryAuthorizationHook
     {
         private readonly HookProbe _probe;
-        private readonly BinaryRequestAccessor _accessor;
 
-        internal RequestClaims(HookProbe probe, BinaryRequestAccessor accessor)
+        internal RequestClaims(HookProbe probe)
         {
             _probe = probe;
-            _accessor = accessor;
         }
 
         public ValueTask<FrameStatus> AuthorizeAsync(BinaryRequestContext request)
@@ -242,7 +240,7 @@ public sealed class AuthHookTests : ServerSurfaceTestBase
 
             var principal = request.User!;
             var connection = request.Connection;
-            if (!ReferenceEquals(request, _accessor.Current) || request.Path is not ['/', ..] ||
+            if (request.Path is not ['/', ..] ||
                 connection?.RemoteEndPoint is not { Port: > 0 } remote ||
                 !IPAddress.IsLoopback(remote.Address.IsIPv4MappedToIPv6 ? remote.Address.MapToIPv4() : remote.Address) ||
                 connection.LocalEndPoint is not { Port: > 0 })

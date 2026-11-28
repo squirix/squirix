@@ -46,7 +46,7 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
         session.Physical.Set(new CacheKey(CacheName, Key), new NodeCacheEntry<string>("v", expiresUtc: clock.GetUtcNow().UtcDateTime), cancellationToken);
         _ = await Assert.That(stats.EntryCount).IsEqualTo(1);
 
-        _ = await Assert.That(await session.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, cancellationToken)).IsFalse();
+        _ = await Assert.That(await session.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, null, cancellationToken)).IsFalse();
 
         _ = await Assert.That(stats.EntryCount).IsEqualTo(0);
         _ = await Assert.That(kit.CountJournalRecords(cancellationToken)).IsEqualTo(0);
@@ -62,7 +62,7 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
         await using var session = await kit.OpenAsync(clock, cancellationToken);
         session.Physical.Set(new CacheKey(CacheName, Key), new NodeCacheEntry<string>("v", expiresUtc: clock.GetUtcNow().UtcDateTime.AddTicks(1)), cancellationToken);
 
-        _ = await Assert.That(await session.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, cancellationToken)).IsTrue();
+        _ = await Assert.That(await session.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, null, cancellationToken)).IsTrue();
     }
 
     /// <summary>A large update of a missing key still appends nothing.</summary>
@@ -74,7 +74,7 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
         await using var session = await kit.OpenAsync(JournalReplayKit.CreateWriteClock(PastStart), cancellationToken);
         var value = new string('x', EntryLimitKit.LargeFixtureBytes);
 
-        _ = await Assert.That(await session.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, value, cancellationToken)).IsFalse();
+        _ = await Assert.That(await session.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, value, null, cancellationToken)).IsFalse();
 
         _ = await Assert.That(kit.CountJournalRecords(cancellationToken)).IsEqualTo(0);
     }
@@ -90,14 +90,14 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
         var kit = new JournalReplayKit(Dir, groupCommit, journalMaxSegmentMb: 5);
         await using var session = await kit.OpenAsync(JournalReplayKit.CreateWriteClock(PastStart), cancellationToken);
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["team"] = "a" }.ToFrozenDictionary(StringComparer.Ordinal);
-        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", tags: tags), cancellationToken);
+        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", tags: tags), null, cancellationToken);
         var framesBefore = kit.CountJournalRecords(cancellationToken);
 
         var largeValue = new string('x', EntryLimitKit.LargeFixtureBytes);
-        _ = await Assert.That(await session.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, largeValue, cancellationToken)).IsTrue();
+        _ = await Assert.That(await session.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, largeValue, null, cancellationToken)).IsTrue();
         _ = await Assert.That(kit.CountJournalRecords(cancellationToken)).IsEqualTo(framesBefore + 1);
         _ = await Assert.That(session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken)!.Tags!["team"]).IsEqualTo("a");
-        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("w"), cancellationToken);
+        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("w"), null, cancellationToken);
         _ = await Assert.That(session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken)!.Value).IsEqualTo("w");
     }
 
@@ -113,7 +113,7 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
         await using (var session = await kit.OpenAsync(clock, cancellationToken))
         {
             session.Physical.Set(new CacheKey(CacheName, Key), new NodeCacheEntry<string>("v", expiresUtc: start.Add(Ttl)), cancellationToken);
-            _ = await Assert.That(await session.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, "w", cancellationToken)).IsTrue();
+            _ = await Assert.That(await session.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, "w", null, cancellationToken)).IsTrue();
             memory = session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         }
 

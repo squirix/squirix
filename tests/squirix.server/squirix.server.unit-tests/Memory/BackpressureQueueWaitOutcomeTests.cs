@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Runtime.ExceptionServices;
 using System.Threading;
@@ -23,7 +24,6 @@ public sealed class BackpressureQueueWaitOutcomeTests
     private const string Transport = "rest";
     private static readonly TimeSpan MaxQueueWait = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(10);
-    private static readonly AsyncLocal<bool> TrackedFlow = new();
 
     /// <summary>A caller that cancels while queued still observes the cancellation and the gate counts it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -83,7 +83,8 @@ public sealed class BackpressureQueueWaitOutcomeTests
         var held = (await gate.AcquireAsync(Transport, Operation, "rest:client-0", cancellationToken)).Lease;
 
         // The marker flows with the execution context of this test only, so exceptions of tests running in parallel are not counted.
-        TrackedFlow.Value = true;
+        using var tracked = new Activity(nameof(QueueWaitTimeoutRejectsWithoutException));
+        _ = tracked.Start();
         var queued = StartAcquireAsync(gate, "rest:client-1", cancellationToken);
         _ = await Assert.That(gate.QueueDepth).IsEqualTo(1);
 
@@ -113,7 +114,7 @@ public sealed class BackpressureQueueWaitOutcomeTests
 
         void OnFirstChance(object? sender, FirstChanceExceptionEventArgs args)
         {
-            if (args.Exception is OperationCanceledException && TrackedFlow.Value)
+            if (args.Exception is OperationCanceledException && ReferenceEquals(Activity.Current, tracked))
                 _ = Interlocked.Increment(ref gateCancellations);
         }
     }

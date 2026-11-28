@@ -85,8 +85,11 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         await using var registry = await OpenRegistryAsync(cancellationToken);
         await using var committer = CreateCommitter(registry, local, (log, log), metrics: new ReplicationMetrics(meter));
         var cache = new DomainErrorMappingCacheDecorator<StoredValue>(new ReplicatedCache(local, LedGroupsTestKit.LeadOwn(committer)));
+        var scope = Correlation.CreateScopeState(null, "node-a", "/cache/SetEntry");
+        var request = ICacheRequestContext.Mock(MockBehavior.Strict);
+        _ = request.LogScope.Returns(scope);
 
-        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cache.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cache.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), request.Object, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var transport = error.ToServerCallException();
 
         // The remote owner reports the stable commit-unknown contract over gRPC.
@@ -94,7 +97,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         _ = remoteOwner.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
                        .ReturnsAsync(static (_, _, _, _, _) => ValueTask.FromException(ServerOpContract.CommitOutcomeUnknown().ToServerCallException()));
         var forwarded = new DomainErrorMappingCacheDecorator<StoredValue>(remoteOwner.Object);
-        var remote = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(forwarded.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var remote = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(forwarded.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), null, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
         _ = await Assert.That(transport.StatusCode).IsEqualTo(FrameStatus.Unavailable);
@@ -103,6 +106,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         _ = await Assert.That(remote.Message).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
         await SequenceAssert.EqualAsync(["user_mutation"], operations.ToArray(), StringComparer.Ordinal);
         _ = await Assert.That(log.UnknownLevel).IsEqualTo(ServerLogLevel.Warning);
+        _ = await Assert.That(log.UnknownScope).IsSameReferenceAs(scope);
         _ = await Assert.That(log.UnknownCause?.InnerException?.Message).IsEqualTo("Injected memory apply failure after the majority.");
     }
 
@@ -565,7 +569,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     {
         private readonly ConcurrentQueue<ServerLogEventId> _events = new();
         private readonly ConcurrentQueue<object?> _faultedWaiters = new();
-        private readonly ConcurrentQueue<(ServerLogLevel Level, Exception? Cause)> _unknowns = new();
+        private readonly ConcurrentQueue<(ServerLogLevel Level, Exception? Cause, object? Scope)> _unknowns = new();
 
         internal object? FaultedWaiters => _faultedWaiters.TryPeek(out var faulted) ? faulted : null;
 
@@ -575,12 +579,17 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
 
         internal ServerLogLevel? UnknownLevel => _unknowns.TryPeek(out var unknown) ? unknown.Level : null;
 
+        internal object? UnknownScope => _unknowns.TryPeek(out var unknown) ? unknown.Scope : null;
+
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
 
         public bool IsEnabled(ServerLogLevel logLevel) => true;
 
-        public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            LogWithScope(logLevel, eventId, state, exception, formatter, null);
+
+        public void LogWithScope<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter, object? scope)
         {
             _events.Enqueue(eventId);
             if (eventId.Id == LogLeakedOnShutdownEventId && state is IReadOnlyList<KeyValuePair<string, object?>> values)
@@ -595,7 +604,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
             if (eventId.Id != CommitUnknownEventId)
                 return;
 
-            _unknowns.Enqueue((logLevel, exception));
+            _unknowns.Enqueue((logLevel, exception, scope));
         }
 
         internal int Count(int id)

@@ -36,16 +36,16 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
     {
         var deadlineUtc = DateTime.UtcNow.AddSeconds(30);
         var budget = new RerouteBudget(new DateTimeOffset(deadlineUtc, TimeSpan.Zero), TimeProvider.System);
-        using var scope = ServerRpcDeadlineContext.Push(deadlineUtc, TimeProvider.System);
+        var transportBudget = ServerDeadlineBudget.Start(deadlineUtc, TimeProvider.System);
 
-        var transportRemaining = ServerRpcDeadlineContext.CurrentBudget?.Remaining;
-        _ = await Assert.That(transportRemaining).IsNotNull();
+        var transportRemaining = transportBudget.Remaining;
+        _ = await Assert.That(transportRemaining > TimeSpan.Zero).IsTrue();
         var rerouteRemaining = budget.GetRemaining();
         _ = await Assert.That(rerouteRemaining > TimeSpan.Zero).IsTrue();
         _ = await Assert.That(rerouteRemaining <= TimeSpan.FromSeconds(30)).IsTrue();
         _ = await Assert.That(budget.HasExpired()).IsFalse();
 
-        // The shared deadline advances under a fake clock without touching the ambient budget above.
+        // The shared deadline advances under a fake clock independently of the transport clock.
         var time = new FakeTimeProvider(new DateTimeOffset(deadlineUtc, TimeSpan.Zero) - TimeSpan.FromSeconds(30));
         var paced = new RerouteBudget(time.GetUtcNow() + TimeSpan.FromSeconds(10), time);
         _ = await Assert.That(paced.HasExpired()).IsFalse();
@@ -55,7 +55,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
         // An expired shared deadline rejects transport attempts before the first try.
         await using var policy = CreatePolicy(TimeProvider.System, peer: "reroute-deadline");
         var attempts = new InvocationCounter();
-        using var expired = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddSeconds(-1), TimeProvider.System);
+        var deadline = ServerDeadlineBudget.Start(DateTime.UtcNow.AddSeconds(-1), TimeProvider.System);
         var expiredBudget = new RerouteBudget(DateTimeOffset.UtcNow.AddSeconds(-1), TimeProvider.System);
         _ = await Assert.That(expiredBudget.HasExpired()).IsTrue();
 
@@ -67,7 +67,8 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
                     var attempt = counter.Increment();
                     return ValueTask.FromResult(attempt);
                 },
-                cancellationToken),
+                cancellationToken,
+                deadline),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
@@ -111,14 +112,14 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
     public async Task WallStepLeavesPushedBudget()
     {
         var clock = new WallSteppedClock();
-        using var scope = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
+        var transportBudget = ServerDeadlineBudget.Start(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
 
         clock.StepWallClock(TimeSpan.FromHours(2));
-        var afterStep = ServerRpcDeadlineContext.CurrentBudget?.Remaining;
+        var afterStep = transportBudget.Remaining;
         clock.Advance(TimeSpan.FromMinutes(10));
 
         _ = await Assert.That(afterStep).IsEqualTo(TimeSpan.FromHours(1));
-        _ = await Assert.That(ServerRpcDeadlineContext.CurrentBudget?.Remaining).IsEqualTo(TimeSpan.FromMinutes(50));
+        _ = await Assert.That(transportBudget.Remaining).IsEqualTo(TimeSpan.FromMinutes(50));
     }
 
     /// <summary>The operation budget expires on the clock its deadline was pushed with, with no real delay.</summary>
@@ -128,10 +129,10 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
     {
         var clock = new WallSteppedClock();
         await using var policy = CreatePolicy(clock, new CallPolicyTimeouts(TimeSpan.FromHours(2), TimeSpan.Zero, TimeSpan.Zero), 1, peer: "budget-clock");
-        using var scope = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
+        var deadline = ServerDeadlineBudget.Start(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var call = policy.ExecuteAsync(entered, static (signal, ct) => BlockUntilCanceledAsync(signal, ct), cancellationToken).AsTask();
+        var call = policy.ExecuteAsync(entered, static (signal, ct) => BlockUntilCanceledAsync(signal, ct), cancellationToken, deadline).AsTask();
         await entered.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         clock.StepWallClock(TimeSpan.FromHours(2));
         var pendingAfterStep = !call.IsCompleted;
@@ -149,10 +150,10 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
     {
         var pushClock = new WallSteppedClock();
         await using var policy = CreatePolicy(TimeProvider.System, new CallPolicyTimeouts(TimeSpan.FromHours(2), TimeSpan.Zero, TimeSpan.Zero), 1, peer: "budget-push-clock");
-        using var scope = ServerRpcDeadlineContext.Push(pushClock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), pushClock);
+        var deadline = ServerDeadlineBudget.Start(pushClock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), pushClock);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var call = policy.ExecuteAsync(entered, static (signal, ct) => BlockUntilCanceledAsync(signal, ct), cancellationToken).AsTask();
+        var call = policy.ExecuteAsync(entered, static (signal, ct) => BlockUntilCanceledAsync(signal, ct), cancellationToken, deadline).AsTask();
         await entered.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         pushClock.Advance(TimeSpan.FromHours(1));
         var ex = await NodeAsyncAssert.ThrowsAsync<ServerCallException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);

@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics.Metrics;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Wire;
-using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Composition;
@@ -14,7 +13,6 @@ using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
-using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Snapshot;
 
@@ -26,9 +24,8 @@ internal static class RuntimeServiceRegistration
     {
         internal NodeServices AddSquirixRuntimeServices(bool metricsEnabled, bool memoryAccountingEnabled, long? localWriteLimit)
         {
-            _ = services.AddRequestContextServices();
             _ = services.Own<IBackpressureClientIdResolver>(static sp => sp.Require<AdmissionOptions>().HasPerClientLimits
-                ? new BinaryClientIdResolver(sp.Require<BinaryRequestAccessor>())
+                ? new BinaryClientIdResolver()
                 : SharedClientIdResolver.Instance);
             _ = services.Own<IBackpressureGate>(static sp => new AdmissionGate(
                 sp.Require<AdmissionOptions>(),
@@ -49,16 +46,6 @@ internal static class RuntimeServiceRegistration
 
             _ = services.AddRequestRoutingServices();
 
-            return services;
-        }
-
-        private NodeServices AddRequestContextServices()
-        {
-            _ = services.Own(static _ => new RemoteInvocationContextAccessor());
-            _ = services.Own<IRemoteInvocationScopeFactory>(static sp => sp.Require<RemoteInvocationContextAccessor>());
-            _ = services.Own<IRemoteInvocationState>(static sp => sp.Require<RemoteInvocationContextAccessor>());
-            _ = services.Own(static _ => new BinaryRequestAccessor());
-            _ = services.Own<IRoutedKeyContext>(static sp => sp.Require<BinaryRequestAccessor>());
             return services;
         }
 
@@ -173,25 +160,10 @@ internal static class RuntimeServiceRegistration
     /// <returns>The router; it waits for a leader at most as long as the election options allow.</returns>
     private static OwnerRouter CreateOwnerRouter(IServiceProvider sp) => new(
         sp.Require<INodeOwnershipResolver>(),
-        sp.Require<IRemoteInvocationState>(),
+        null,
         sp.Require<RingAgreement>(),
         sp.Require<IGroupLeaderTable>(),
         (sp.Find<ElectionTimerOptions>() ?? new ElectionTimerOptions()).LeaderWaitTimeout,
         sp.Require<TimeProvider>(),
-        sp.Require<IReplicaGroupLocator>())
-    {
-        KeyContext = sp.Require<IRoutedKeyContext>(),
-    };
-
-    /// <summary>DI-backed accessor for <see cref="RemoteInvocationContext" /> async-local state.</summary>
-    [Immutable]
-    private sealed class RemoteInvocationContextAccessor : IRemoteInvocationScopeFactory, IRemoteInvocationState
-    {
-        /// <inheritdoc />
-        public bool IsInternalOwnerInvocation => RemoteInvocationContext.IsInternalOwnerInvocation;
-
-        /// <inheritdoc />
-        public RemoteInvocationScope EnterRemoteInvocation(bool isInternalOwnerInvocation, bool reportUnknownMutationOutcome) =>
-            RemoteInvocationContext.EnterRemoteInvocation(isInternalOwnerInvocation, reportUnknownMutationOutcome);
-    }
+        sp.Require<IReplicaGroupLocator>());
 }

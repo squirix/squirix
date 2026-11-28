@@ -7,6 +7,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Transport.Binary;
 using Squirix.Transport.Wire;
@@ -39,7 +40,7 @@ internal sealed class OwnerRouter
 {
     private readonly TimeSpan _attemptBudget;
     private readonly TimeProvider _clock;
-    private readonly IRemoteInvocationState _invocationState;
+    private readonly IRemoteInvocationState? _invocationState;
     private readonly TimeSpan _leaderWait;
     private readonly INodeOwnershipResolver _ownershipResolver;
     private readonly IReplicaGroupLocator _replicaGroups;
@@ -59,7 +60,7 @@ internal sealed class OwnerRouter
     /// <param name="replicaGroups">Resolves the replica set of a group; a leader hint naming a node outside it is ignored.</param>
     internal OwnerRouter(
         INodeOwnershipResolver ownershipResolver,
-        IRemoteInvocationState invocationState,
+        IRemoteInvocationState? invocationState,
         RingAgreement ringAgreement,
         IGroupLeaderTable table,
         TimeSpan leaderWait,
@@ -67,7 +68,6 @@ internal sealed class OwnerRouter
         IReplicaGroupLocator replicaGroups)
     {
         ArgumentNullException.ThrowIfNull(ownershipResolver);
-        ArgumentNullException.ThrowIfNull(invocationState);
         ArgumentNullException.ThrowIfNull(ringAgreement);
         ArgumentNullException.ThrowIfNull(table);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(leaderWait, TimeSpan.Zero);
@@ -98,6 +98,7 @@ internal sealed class OwnerRouter
     /// <param name="forward">Forwards the call to the node it names: one logical attempt, which the call policy may retry on a transport failure.</param>
     /// <param name="local">Runs the call on this node.</param>
     /// <param name="cancellationToken">The call cancellation token.</param>
+    /// <param name="context">The inbound deadline and request metadata.</param>
     /// <returns>The response of the attempt that answered.</returns>
     /// <remarks>An invalid cache name or key runs on this node, so the canonical validation error is raised as for any local call.</remarks>
     /// <exception cref="ServerCallException">
@@ -110,10 +111,12 @@ internal sealed class OwnerRouter
         string cacheName,
         string key,
         TState state,
-        Func<TState, string, CancellationToken, Task<TResponse>> forward,
+        Func<TState, string, ServerDeadlineBudget?, CancellationToken, Task<TResponse>> forward,
         Func<TState, CancellationToken, ValueTask<TResponse>> local,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        (ServerDeadlineBudget? Budget, ICacheRequestContext? Request) context = default)
     {
+        var (deadlineBudget, request) = context;
         ArgumentNullException.ThrowIfNull(forward);
         ArgumentNullException.ThrowIfNull(local);
         _ringAgreement.EnsureNotFenced();
@@ -122,12 +125,12 @@ internal sealed class OwnerRouter
 
         if (!CacheKeyValidator.TryValidate(key, out var error))
         {
-            KeyContext?.RecordRoute(canonicalName, key, error, null);
+            (request ?? KeyContext)?.RecordRoute(canonicalName, key, error, null);
             return local(state, cancellationToken);
         }
 
         var groupId = _soleOwner ?? _ownershipResolver.GetOwner(canonicalName, key);
-        KeyContext?.RecordRoute(canonicalName, key, null, groupId);
+        (request ?? KeyContext)?.RecordRoute(canonicalName, key, null, groupId);
         if (_soleOwner != null)
             return local(state, cancellationToken);
 
@@ -135,12 +138,12 @@ internal sealed class OwnerRouter
 
         // An internal call is itself the single hop: it runs here or is refused. Elected right before it, this node may still wait for its own
         // authority. A static table never refutes a route, so a reroute could only repeat the refused attempt: one attempt, its refusal relayed.
-        return (Internal: _invocationState.IsInternalOwnerInvocation, Static: _table is StaticLeaderTable) switch
+        return (Internal: (request?.Forwarded ?? _invocationState?.IsInternalOwnerInvocation) == true, Static: _table is StaticLeaderTable) switch
         {
-            (true, false) when !IsSelf(in route) && AwaitsAuthority(groupId) => AwaitAuthorityAsync(groupId, route, StartCall(), state, local, cancellationToken),
+            (true, false) when !IsSelf(in route) && AwaitsAuthority(groupId) => AwaitAuthorityAsync(groupId, route, StartCall(deadlineBudget), state, local, cancellationToken),
             (true, _) when !IsSelf(in route) => throw RefuseInternal(groupId, in route),
-            (true, _) or (_, true) => AttemptAsync(in route, state, forward, local, cancellationToken),
-            _ => RouteAsync(groupId, route, StartCall(), state, forward, local, cancellationToken),
+            (true, _) or (_, true) => AttemptAsync(in route, state, forward, local, deadlineBudget, cancellationToken),
+            _ => RouteAsync(groupId, route, StartCall(deadlineBudget), state, forward, local, cancellationToken),
         };
     }
 
@@ -160,9 +163,10 @@ internal sealed class OwnerRouter
     private ValueTask<TResponse> AttemptAsync<TState, TResponse>(
         in LeaderRoute route,
         TState state,
-        Func<TState, string, CancellationToken, Task<TResponse>> forward,
+        Func<TState, string, ServerDeadlineBudget?, CancellationToken, Task<TResponse>> forward,
         Func<TState, CancellationToken, ValueTask<TResponse>> local,
-        CancellationToken cancellationToken) => IsSelf(in route) ? local(state, cancellationToken) : new ValueTask<TResponse>(forward(state, route.NodeId, cancellationToken));
+        ServerDeadlineBudget? deadlineBudget,
+        CancellationToken cancellationToken) => IsSelf(in route) ? local(state, cancellationToken) : new ValueTask<TResponse>(forward(state, route.NodeId, deadlineBudget, cancellationToken));
 
     /// <summary>Tells whether this node leads a group without authority yet and has seen no higher term, so it may still get the authority.</summary>
     /// <param name="groupId">The group.</param>
@@ -300,9 +304,10 @@ internal sealed class OwnerRouter
         return leader ? route : throw ServerOpContract.NoLeaderAuthority();
     }
 
-    /// <summary>Starts the attempt budget of a call: the ambient budget, which the caller deadline or the forward of the entry node set, capped at one attempt.</summary>
+    /// <summary>Starts the attempt budget of a call: the inbound budget, which the caller deadline or the forward of the entry node set, capped at one attempt.</summary>
+    /// <param name="deadlineBudget">The original request budget.</param>
     /// <returns>The budget, counted from the arrival of the call; without a deadline, a new one that starts now.</returns>
-    private ServerDeadlineBudget StartCall() => ServerRpcDeadlineContext.CurrentBudget?.CappedAt(_attemptBudget) ??
+    private ServerDeadlineBudget StartCall(ServerDeadlineBudget? deadlineBudget) => deadlineBudget?.CappedAt(_attemptBudget) ??
                                                new ServerDeadlineBudget(_clock, _attemptBudget, _clock.GetTimestamp());
 
     /// <summary>Bounds a wait for a leader, or for this node's own authority, by the leader wait and the time left in the attempt budget of the call.</summary>
@@ -415,7 +420,7 @@ internal sealed class OwnerRouter
         LeaderRoute known,
         ServerDeadlineBudget call,
         TState state,
-        Func<TState, string, CancellationToken, Task<TResponse>> forward,
+        Func<TState, string, ServerDeadlineBudget?, CancellationToken, Task<TResponse>> forward,
         Func<TState, CancellationToken, ValueTask<TResponse>> local,
         CancellationToken cancellationToken)
     {
@@ -427,9 +432,7 @@ internal sealed class OwnerRouter
         {
             try
             {
-                TResponse response;
-                using (IsSelf(in route) ? null : ServerRpcDeadlineContext.Push(in call))
-                    response = await AttemptAsync(in route, state, forward, local, cancellationToken).ConfigureAwait(false);
+                var response = await AttemptAsync(in route, state, forward, local, call, cancellationToken).ConfigureAwait(false);
 
                 if (fellBack)
                     _table.Learn(groupId, in route);

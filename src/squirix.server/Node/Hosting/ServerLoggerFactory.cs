@@ -15,7 +15,6 @@ internal sealed class ServerLoggerFactory : IServerLoggerFactory
 {
     private readonly Lock _gate = new();
     private readonly ConcurrentDictionary<string, ConsoleLogger> _loggers = new(StringComparer.Ordinal);
-    private readonly LoggerExternalScopeProvider _scopes = new();
     private readonly ServerLoggingSettings _settings;
     private readonly Action<string> _writeLine;
 
@@ -62,26 +61,26 @@ internal sealed class ServerLoggerFactory : IServerLoggerFactory
 
         public bool IsScopeEnabled => _includeScopes;
 
-        public IDisposable? BeginScope<TState>(TState state)
-            where TState : notnull => _includeScopes ? _owner._scopes.Push(state) : null;
-
         public bool IsEnabled(ServerLogLevel logLevel) => logLevel >= _minimum && logLevel < ServerLogLevel.None;
 
-        public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            LogWithScope(logLevel, eventId, state, exception, formatter, null);
+
+        public void LogWithScope<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter, object? scope)
         {
             if (!IsEnabled(logLevel))
                 return;
 
             if (_json)
             {
-                WriteJson(logLevel, eventId, formatter(state, exception), state, exception);
+                WriteJson(logLevel, eventId, formatter(state, exception), state, (exception, scope));
                 return;
             }
 
             var line = new StringBuilder();
             _ = line.Append(CultureInfo.InvariantCulture, $"{logLevel}: {_name}[{eventId.Id}] ");
-            if (_includeScopes)
-                _owner._scopes.ForEachScope(static (scope, text) => text.Append(scope).Append(' '), line);
+            if (_includeScopes && scope != null)
+                WriteScopes(scope, static (item, text) => _ = text.Append(item).Append(' '), line);
             _ = line.Append(formatter(state, exception));
             if (exception != null)
                 _ = line.AppendLine().Append(exception);
@@ -138,6 +137,18 @@ internal sealed class ServerLoggerFactory : IServerLoggerFactory
         private static bool IsDecimalNumber(object value) =>
             value is byte or sbyte or short or ushort or int or uint or long or ulong or decimal;
 
+        private static void WriteScopes<T>(object scope, Action<object, T> write, T target)
+        {
+            if (scope is not IReadOnlyList<object> scopes)
+            {
+                write(scope, target);
+                return;
+            }
+
+            for (var i = 0; i < scopes.Count; i++)
+                write(scopes[i], target);
+        }
+
         private static void WriteScope(object scope, Utf8JsonWriter writer)
         {
             var text = Convert.ToString(scope, CultureInfo.InvariantCulture);
@@ -169,7 +180,7 @@ internal sealed class ServerLoggerFactory : IServerLoggerFactory
         }
 
 #pragma warning disable MA0045 // IServerLogger.Log is synchronous and this UTF-8 writer targets memory.
-        private void WriteJson<TState>(ServerLogLevel level, ServerLogEventId id, string message, TState state, Exception? exception)
+        private void WriteJson<TState>(ServerLogLevel level, ServerLogEventId id, string message, TState state, (Exception? Error, object? Scope) context)
         {
             var buffer = new ArrayBufferWriter<byte>();
             using var json = new Utf8JsonWriter(buffer);
@@ -178,8 +189,8 @@ internal sealed class ServerLoggerFactory : IServerLoggerFactory
             json.WriteString("LogLevel", Enum.GetName(level));
             json.WriteString("Category", _name);
             json.WriteString("Message", message);
-            if (exception != null)
-                json.WriteString("Exception", exception.ToString());
+            if (context.Error != null)
+                json.WriteString("Exception", context.Error.ToString());
             if (state is IReadOnlyList<KeyValuePair<string, object?>> fields)
             {
                 json.WritePropertyName("State");
@@ -189,7 +200,9 @@ internal sealed class ServerLoggerFactory : IServerLoggerFactory
             if (_includeScopes)
             {
                 json.WriteStartArray("Scopes");
-                _owner._scopes.ForEachScope(WriteScope, json);
+                if (context.Scope != null)
+                    WriteScopes(context.Scope, WriteScope, json);
+
                 json.WriteEndArray();
             }
 

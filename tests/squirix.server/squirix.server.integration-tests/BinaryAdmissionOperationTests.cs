@@ -63,13 +63,13 @@ public sealed class BinaryAdmissionOperationTests : NodeIntegrationTestBase
     public async Task CompletedRequestRevokesInheritedGrant(CancellationToken cancellationToken)
     {
         const string node = "inherited-admission";
-        var observed = new TaskCompletionSource<(ExecutionContext? Flow, bool Admitted)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var observed = new TaskCompletionSource<(BinaryRequestContext Call, bool Admitted)>(TaskCreationOptions.RunContinuationsAsynchronously);
         var options = new IntegrationStartOptions
         {
             ServicesConfigure = services => services.AddSingleton(provider =>
             {
                 var gate = provider.GetRequiredService<IBackpressureGate>();
-                return new BinaryCallObserver(_ => observed.SetResult((ExecutionContext.Capture(), InboundAdmissionScope.IsAdmitted(gate))));
+                return new BinaryCallObserver(call => observed.SetResult((call, call.IsAdmitted(gate))));
             }),
         };
         await using var cluster = await StartClusterAsync(node, options, cancellationToken);
@@ -82,39 +82,37 @@ public sealed class BinaryAdmissionOperationTests : NodeIntegrationTestBase
             null,
             cancellationToken);
         _ = await Assert.That(read.Found).IsFalse();
-        var (flow, admitted) = await observed.Task.WaitAsync(cancellationToken);
+        var (call, admitted) = await observed.Task.WaitAsync(cancellationToken);
         _ = await Assert.That(admitted).IsTrue();
-        var inherited = true;
         var hostGate = host.GetRequiredService<IBackpressureGate>();
-        ExecutionContext.Run(flow!, _ => inherited = InboundAdmissionScope.IsAdmitted(hostGate), null);
-        _ = await Assert.That(inherited).IsFalse();
+        _ = await Assert.That(call.IsAdmitted(hostGate)).IsFalse();
     }
 
-    /// <summary>The cache hook sees the request deadline and the enclosing trace ends after that deadline scope exits.</summary>
+    /// <summary>The admitted call carries its deadline and the enclosing trace ends after the call.</summary>
     /// <param name="cancellationToken">Test cancellation token.</param>
     [Test]
-    public async Task RequestDeadlineEndsBeforeServerActivity(CancellationToken cancellationToken)
+    public async Task AdmittedRequestCarriesDeadline(CancellationToken cancellationToken)
     {
         var marker = new object();
-        var after = new TaskCompletionSource<ServerDeadlineBudget?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var after = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var listener = new ActivityListener
         {
             ShouldListenTo = static source => string.Equals(source.Name, ActivitySourceHolder.SourceName, StringComparison.Ordinal),
             Sample = static (ref _) => ActivitySamplingResult.AllData,
             ActivityStopped = activity =>
             {
-                if (ReferenceEquals(activity.GetCustomProperty(nameof(RequestDeadlineEndsBeforeServerActivity)), marker))
-                    after.SetResult(ServerRpcDeadlineContext.CurrentBudget);
+                if (ReferenceEquals(activity.GetCustomProperty(nameof(AdmittedRequestCarriesDeadline)), marker))
+                    after.SetResult();
             },
         };
         ActivitySource.AddActivityListener(listener);
         var inside = new TaskCompletionSource<ServerDeadlineBudget?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var options = new IntegrationStartOptions
         {
-            ServicesConfigure = services => services.AddSingleton(new BinaryCallObserver(_ =>
+            ServicesConfigure = services => services.AddSingleton(new BinaryCallObserver(call =>
             {
-                Activity.Current!.SetCustomProperty(nameof(RequestDeadlineEndsBeforeServerActivity), marker);
-                inside.SetResult(ServerRpcDeadlineContext.CurrentBudget);
+                Activity.Current!.SetCustomProperty(nameof(AdmittedRequestCarriesDeadline), marker);
+                inside.SetResult(call.Deadline);
             })),
         };
         const string node = "dispatch-deadline";
@@ -129,7 +127,7 @@ public sealed class BinaryAdmissionOperationTests : NodeIntegrationTestBase
 
         _ = await Assert.That(response.Found).IsFalse();
         _ = await Assert.That(await inside.Task.WaitAsync(cancellationToken)).IsNotNull();
-        _ = await Assert.That(await after.Task.WaitAsync(cancellationToken)).IsNull();
+        await after.Task.WaitAsync(cancellationToken);
     }
 
     private sealed class RejectingGate : IBackpressureGate

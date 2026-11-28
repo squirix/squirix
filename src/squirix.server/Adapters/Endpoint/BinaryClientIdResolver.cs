@@ -1,8 +1,6 @@
-using System;
 using System.Security.Claims;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
-using Squirix.Server.Runtime.Invocation;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
@@ -19,23 +17,10 @@ internal sealed class BinaryClientIdResolver : IBackpressureClientIdResolver
     private const string ConnPrefix = "conn:";
     private const string JwtPrefix = "jwt:";
 
-    private readonly BinaryRequestAccessor _requests;
-
-    internal BinaryClientIdResolver(BinaryRequestAccessor requests)
-    {
-        ArgumentNullException.ThrowIfNull(requests);
-        _requests = requests;
-    }
-
     /// <inheritdoc />
-    public string Resolve()
-    {
-        if (RemoteInvocationContext.IsInternalOwnerInvocation)
-            return ClientIds.InternalOwner;
+    public string Resolve() => ClientIds.Runtime;
 
-        var context = _requests.Current;
-        return context == null ? ClientIds.Runtime : context.ClientId ??= ResolveCore(context);
-    }
+    internal static string ResolveRequest(BinaryRequestContext context) => context.ClientId ??= ResolveCore(context);
 
     private static string CreatePrefixed(string prefix, string value) => string.Concat(prefix, value);
 

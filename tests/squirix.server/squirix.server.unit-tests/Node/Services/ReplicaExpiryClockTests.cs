@@ -57,15 +57,15 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var leader = new Leader(registry, clock);
         var admission = CreateAdmission(leader, meter);
-        await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
+        await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), null, cancellationToken);
         clock.Advance(Ttl);
         var before = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
 
         var applied = kind switch
         {
             ReplicaMutationKinds.Set => await SetAsync(admission, cancellationToken),
-            ReplicaMutationKinds.TryAdd => await admission.TryAddEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("w")), cancellationToken),
-            _ => await admission.TouchAsync(NewOperationId(), CacheName, Key, Ttl, cancellationToken),
+            ReplicaMutationKinds.TryAdd => await admission.TryAddEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("w")), null, cancellationToken),
+            _ => await admission.TouchAsync(NewOperationId(), CacheName, Key, Ttl, null, cancellationToken),
         };
 
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(before + 1);
@@ -86,7 +86,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
             await b.Committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
             behind.Advance(Ttl - Skew);
 
-            _ = await Assert.That(StoredValueProbe.Text((await b.Cache.GetEntryAsync(CacheName, Key, cancellationToken))?.Value)).IsEqualTo("v");
+            _ = await Assert.That(StoredValueProbe.Text((await b.Cache.GetEntryAsync(CacheName, Key, null, cancellationToken))?.Value)).IsEqualTo("v");
         }
 
         var ahead = new FakeTimeProvider(Start + Ttl);
@@ -96,7 +96,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
             _ = await a.Committer.VerifyReplicasAsync(cancellationToken);
             _ = await Assert.That(StoredValueProbe.Text(a.Raw(cancellationToken)?.Value)).IsEqualTo("v");
 
-            _ = await Assert.That(await a.Cache.GetEntryAsync(CacheName, Key, cancellationToken)).IsNull();
+            _ = await Assert.That(await a.Cache.GetEntryAsync(CacheName, Key, null, cancellationToken)).IsNull();
             _ = await Assert.That(await LastKindAsync(a.Registry, cancellationToken)).IsEqualTo(ReplicaMutationKinds.Expire);
         }
 
@@ -106,7 +106,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         _ = await again.Committer.VerifyReplicasAsync(cancellationToken);
 
         _ = await Assert.That(again.Raw(cancellationToken)).IsNull();
-        _ = await Assert.That(await again.Cache.GetEntryAsync(CacheName, Key, cancellationToken)).IsNull();
+        _ = await Assert.That(await again.Cache.GetEntryAsync(CacheName, Key, null, cancellationToken)).IsNull();
     }
 
     /// <summary>A leader whose clock is behind reads a key the earlier leader expired as absent: the tombstone, not its clock, decides.</summary>
@@ -122,7 +122,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
             await a.Committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
             ahead.Advance(Ttl);
 
-            _ = await Assert.That(await a.Cache.GetEntryAsync(CacheName, Key, cancellationToken)).IsNull();
+            _ = await Assert.That(await a.Cache.GetEntryAsync(CacheName, Key, null, cancellationToken)).IsNull();
             _ = await Assert.That(await LastKindAsync(a.Registry, cancellationToken)).IsEqualTo(ReplicaMutationKinds.Expire);
         }
 
@@ -133,7 +133,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         _ = await b.Committer.VerifyReplicasAsync(cancellationToken);
 
         _ = await Assert.That(b.Raw(cancellationToken)).IsNull();
-        _ = await Assert.That(await b.Cache.GetEntryAsync(CacheName, Key, cancellationToken)).IsNull();
+        _ = await Assert.That(await b.Cache.GetEntryAsync(CacheName, Key, null, cancellationToken)).IsNull();
     }
 
     /// <summary>The snapshot capture of the leader drops a key only once its tombstone is applied; an expired key without one is captured.</summary>
@@ -148,7 +148,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
         await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "other", new NodeCacheEntry<StoredValue>(StoredValue.FromText("w"), 1, null, Ttl), cancellationToken);
         clock.Advance(Ttl);
-        _ = await leader.Cache.GetEntryAsync(CacheName, Key, cancellationToken);
+        _ = await leader.Cache.GetEntryAsync(CacheName, Key, null, cancellationToken);
 
         var captured = new List<(CacheKey Key, NodeCacheEntry<StoredValue> Entry)>();
         await new LocalCacheSnapshotCapture(leader.Physical, CacheExpiryAuthority.CommittedRecords).CaptureEntriesAsync(captured, clock.GetUtcNow().UtcDateTime, cancellationToken);
@@ -170,7 +170,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         clock.Advance(Ttl);
 
         var touch = leader.Committer.CommitTouchAsync(NewOperationId(), CacheName, Key, Ttl, cancellationToken);
-        var read = leader.Cache.GetEntryAsync(CacheName, Key, cancellationToken).AsTask();
+        var read = leader.Cache.GetEntryAsync(CacheName, Key, null, cancellationToken).AsTask();
         await Task.WhenAll(touch, read);
 
         _ = await Assert.That(await touch).IsFalse();
@@ -240,7 +240,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         await using var leader = new Leader(leaderRegistry, clock);
         await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
         clock.Advance(Ttl);
-        _ = await leader.Cache.GetEntryAsync(CacheName, Key, cancellationToken);
+        _ = await leader.Cache.GetEntryAsync(CacheName, Key, null, cancellationToken);
         var records = await RecordsAsync(leader.Registry, cancellationToken);
         var followerPhysical = new PhysicalCache<StoredValue>(new FakeTimeProvider(Start + (Ttl * 10)), new CacheEntrySizeEstimator<StoredValue>(), expiry: CacheExpiryAuthority.CommittedRecords);
         var follower = new ClientCache<StoredValue>(followerPhysical, followerPhysical);
@@ -268,7 +268,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         leader.Gateway.Set("n3", FollowerMode.Down);
         clock.Advance(Ttl);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<StoredValue>?>(leader.Cache.GetEntryAsync(CacheName, Key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<StoredValue>?>(leader.Cache.GetEntryAsync(CacheName, Key, null, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(refused.StatusCode).IsEqualTo(FrameStatus.Unavailable);
         _ = await Assert.That(refused.Message).IsEqualTo(ServerOpContract.ExpirationPendingDetail);
@@ -287,12 +287,12 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var leader = new Leader(registry, clock);
         var admission = CreateAdmission(leader, meter);
-        await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
+        await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), null, cancellationToken);
         leader.Gateway.Set("n2", FollowerMode.Down);
         leader.Gateway.Set("n3", FollowerMode.Down);
         clock.Advance(Ttl);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException, bool>(admission.UpdateAsync(NewOperationId(), CacheName, Key, StoredValue.FromText("w"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException, bool>(admission.UpdateAsync(NewOperationId(), CacheName, Key, StoredValue.FromText("w"), null, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(StoredValueProbe.Text(leader.Raw(cancellationToken)?.Value)).IsEqualTo("v");
     }
@@ -309,7 +309,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         {
             await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
             clock.Advance(Ttl);
-            _ = await Assert.That(await leader.Cache.GetEntryAsync(CacheName, Key, cancellationToken)).IsNull();
+            _ = await Assert.That(await leader.Cache.GetEntryAsync(CacheName, Key, null, cancellationToken)).IsNull();
         }
 
         await using var restartedRegistry = await OpenRegistryAsync(dir, cancellationToken);
@@ -374,7 +374,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         clock.Advance(Skew);
 
         _ = await Assert.That(touched).IsTrue();
-        _ = await Assert.That(StoredValueProbe.Text((await leader.Cache.GetEntryAsync(CacheName, Key, cancellationToken))?.Value)).IsEqualTo("v");
+        _ = await Assert.That(StoredValueProbe.Text((await leader.Cache.GetEntryAsync(CacheName, Key, null, cancellationToken))?.Value)).IsEqualTo("v");
     }
 
     /// <summary>
@@ -394,14 +394,14 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         await using (var leader = new Leader(registry, clock))
         {
             var admission = CreateAdmission(leader, meter);
-            await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
+            await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), null, cancellationToken);
             clock.Advance(Ttl);
             var before = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
 
-            var updated = await admission.UpdateAsync(operationId, CacheName, Key, StoredValue.FromText("w"), cancellationToken);
+            var updated = await admission.UpdateAsync(operationId, CacheName, Key, StoredValue.FromText("w"), null, cancellationToken);
             var records = await RecordsAsync(registry, cancellationToken);
             var written = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
-            var retried = await admission.UpdateAsync(operationId, CacheName, Key, StoredValue.FromText("w"), cancellationToken);
+            var retried = await admission.UpdateAsync(operationId, CacheName, Key, StoredValue.FromText("w"), null, cancellationToken);
 
             _ = await Assert.That(updated).IsFalse();
             _ = await Assert.That(written).IsEqualTo(before + 1);
@@ -418,7 +418,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         _ = await behind.Committer.VerifyReplicasAsync(cancellationToken);
 
         _ = await Assert.That(behind.Raw(cancellationToken)).IsNull();
-        _ = await Assert.That(await behind.Cache.GetEntryAsync(CacheName, Key, cancellationToken)).IsNull();
+        _ = await Assert.That(await behind.Cache.GetEntryAsync(CacheName, Key, null, cancellationToken)).IsNull();
     }
 
     /// <summary>An update through memory admission of an absent key answers false without a record; one of a live key commits the new value.</summary>
@@ -433,14 +433,14 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var leader = new Leader(registry, clock);
         var admission = CreateAdmission(leader, meter);
-        await admission.SetEntryAsync(NewOperationId(), CacheName, "other", new NodeCacheEntry<StoredValue>(StoredValue.FromText("x")), cancellationToken);
+        await admission.SetEntryAsync(NewOperationId(), CacheName, "other", new NodeCacheEntry<StoredValue>(StoredValue.FromText("x")), null, cancellationToken);
         var beforeAbsent = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
 
-        var absent = await admission.UpdateAsync(NewOperationId(), CacheName, Key, StoredValue.FromText("w"), cancellationToken);
+        var absent = await admission.UpdateAsync(NewOperationId(), CacheName, Key, StoredValue.FromText("w"), null, cancellationToken);
         var afterAbsent = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
-        await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), cancellationToken);
+        await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, Ttl), null, cancellationToken);
         clock.Advance(Ttl - Skew);
-        var live = await admission.UpdateAsync(NewOperationId(), CacheName, Key, StoredValue.FromText("w"), cancellationToken);
+        var live = await admission.UpdateAsync(NewOperationId(), CacheName, Key, StoredValue.FromText("w"), null, cancellationToken);
 
         _ = await Assert.That(absent).IsFalse();
         _ = await Assert.That(afterAbsent).IsEqualTo(beforeAbsent);
@@ -486,7 +486,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
 
     private static async Task<bool> SetAsync(MemoryAdmissionCacheDecorator<StoredValue> admission, CancellationToken cancellationToken)
     {
-        await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("w")), cancellationToken);
+        await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("w")), null, cancellationToken);
         return true;
     }
 

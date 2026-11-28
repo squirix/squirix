@@ -598,7 +598,7 @@ select new { n, RealTypeCount = realTypeCount, Debt = 5.ToMinutes().ToDebt(), Se
 // directions mirrors the stock rule (t1MethodsUsingT2 / t2MethodsUsingT1).
 // Two legitimate idioms are excluded: nested types (implementation details reviewed
 // with their declarer; NDepend counts a nested access to an outer static member as
-// usage, e.g. a private Scope.Dispose touching the outer AsyncLocal field) and RAII
+// usage, e.g. a private Scope.Dispose touching a field of its enclosing type) and RAII
 // lease/scope tokens whose entire usage of the owner is construction, disposal, or
 // private helpers (LogLease, AdmissionGate.Lease, ReplicaMutationLease,
 // ReplicaIndexReservation). Genuine peer cycles through public protocol still match.

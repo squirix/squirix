@@ -59,8 +59,8 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
                                                     && string.Equals(operationId, "op-1", StringComparison.Ordinal),
             1);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, OtherKey, entry, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        await cache.SetEntryAsync("op-1", CacheName, Key, entry, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, OtherKey, entry, null, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        await cache.SetEntryAsync("op-1", CacheName, Key, entry, null, cancellationToken);
 
         _ = await Assert.That(accounting.ReadRejectedWriteCount()).IsEqualTo(1L);
     }
@@ -77,7 +77,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         var accounting = CreateAccounting();
         var cache = Create(inner.Object, accounting, static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal), 1);
 
-        await cache.SetEntryAsync("op-1", CacheName, Key, entry, cancellationToken);
+        await cache.SetEntryAsync("op-1", CacheName, Key, entry, null, cancellationToken);
 
         _ = await Assert.That(accounting.ReadRejectedWriteCount()).IsEqualTo(0L);
     }
@@ -97,9 +97,9 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         var updateAccounting = CreateAccounting();
         var addAccounting = CreateAccounting();
         var updated = await Create(present.Object, updateAccounting, static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal), 1)
-           .UpdateAsync("op-1", CacheName, Key, "v2", cancellationToken);
+           .UpdateAsync("op-1", CacheName, Key, "v2", null, cancellationToken);
         var added = await Create(absent.Object, addAccounting, static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal), 1)
-           .TryAddEntryAsync("op-1", CacheName, Key, stored, cancellationToken);
+           .TryAddEntryAsync("op-1", CacheName, Key, stored, null, cancellationToken);
 
         _ = await Assert.That(updated).IsTrue();
         _ = await Assert.That(updateAccounting.ReadRejectedWriteCount()).IsEqualTo(0L);
@@ -118,7 +118,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         _ = inner.TryAddEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(true));
         var cache = Create(inner.Object, CreateAccounting(), static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal));
 
-        var added = await cache.TryAddEntryAsync("op-1", CacheName, Key, entry, cancellationToken);
+        var added = await cache.TryAddEntryAsync("op-1", CacheName, Key, entry, null, cancellationToken);
 
         _ = await Assert.That(added).IsTrue();
     }
@@ -133,7 +133,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         _ = inner.UpdateAsync("op-1", CacheName, Key, "v2", Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(true));
         var cache = Create(inner.Object, CreateAccounting(), static (_, _, operationId) => string.Equals(operationId, "op-1", StringComparison.Ordinal));
 
-        var updated = await cache.UpdateAsync("op-1", CacheName, Key, "v2", cancellationToken);
+        var updated = await cache.UpdateAsync("op-1", CacheName, Key, "v2", null, cancellationToken);
 
         _ = await Assert.That(updated).IsTrue();
     }
@@ -149,7 +149,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         var cache = Create(inner.Object, CreateAccounting(), null);
 
         // The inner double has no add set up: a call would throw.
-        var added = await cache.TryAddEntryAsync("op-3", CacheName, Key, entry, cancellationToken);
+        var added = await cache.TryAddEntryAsync("op-3", CacheName, Key, entry, null, cancellationToken);
 
         _ = await Assert.That(added).IsFalse();
     }
@@ -170,7 +170,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         _ = inner.SetEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.CompletedTask);
         var cache = Create(inner.Object, CreateAccounting(), null);
 
-        await cache.SetEntryAsync("op-1", CacheName, Key, new NodeCacheEntry<string> { Value = new string('x', 4096), Version = 1 }, cancellationToken);
+        await cache.SetEntryAsync("op-1", CacheName, Key, new NodeCacheEntry<string> { Value = new string('x', 4096), Version = 1 }, null, cancellationToken);
 
         _ = await Assert.That(reads).IsEqualTo(0);
     }
@@ -186,7 +186,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         var cache = Create(inner.Object, CreateAccounting(), static (_, _, _) => false);
 
         // The inner double has no add set up: a call would throw.
-        var added = await cache.TryAddEntryAsync("op-2", CacheName, Key, entry, cancellationToken);
+        var added = await cache.TryAddEntryAsync("op-2", CacheName, Key, entry, null, cancellationToken);
 
         _ = await Assert.That(added).IsFalse();
     }
@@ -202,7 +202,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         var accounting = CreateAccounting();
         var cache = Create(inner.Object, accounting, static (_, _, _) => false, 1);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-2", CacheName, Key, entry, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-2", CacheName, Key, entry, null, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(accounting.ReadRejectedWriteCount()).IsEqualTo(1L);
     }
@@ -218,11 +218,11 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         _ = inner.TryAddEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(true));
         var instance = inner.Object;
         var admitted = await Create(instance, CreateAccounting(), static (_, _, _) => false, 10_000_000_000, FencedAbsentAsync)
-           .TryAddEntryAsync("op-1", CacheName, Key, entry, cancellationToken);
+           .TryAddEntryAsync("op-1", CacheName, Key, entry, null, cancellationToken);
         var accounting = CreateAccounting();
         var refusing = Create(instance, accounting, static (_, _, _) => false, 1, FencedAbsentAsync);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(refusing.TryAddEntryAsync("op-2", CacheName, Key, entry, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(refusing.TryAddEntryAsync("op-2", CacheName, Key, entry, null, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(admitted).IsTrue();
         _ = await Assert.That(accounting.ReadRejectedWriteCount()).IsEqualTo(1L);
@@ -238,7 +238,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         _ = inner.UpdateAsync("op-1", CacheName, Key, "v2", Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(true));
         var cache = Create(inner.Object, CreateAccounting(), static (_, _, _) => false, 10_000_000_000, static (_, _, _) => ValueTask.FromResult(new NodeCacheEntryPeek<string>(Small, false)));
 
-        var updated = await cache.UpdateAsync("op-1", CacheName, Key, "v2", cancellationToken);
+        var updated = await cache.UpdateAsync("op-1", CacheName, Key, "v2", null, cancellationToken);
 
         _ = await Assert.That(updated).IsTrue();
     }
@@ -254,7 +254,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         _ = inner.TryAddEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(true));
         var cache = Create(inner.Object, CreateAccounting(), static (_, _, _) => true, 10_000_000_000, static (_, _, _) => throw new InvalidOperationException("The fence must not run."));
 
-        var added = await cache.TryAddEntryAsync("op-1", CacheName, Key, entry, cancellationToken);
+        var added = await cache.TryAddEntryAsync("op-1", CacheName, Key, entry, null, cancellationToken);
 
         _ = await Assert.That(added).IsTrue();
     }
@@ -275,7 +275,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
             static (_, _, _) => ValueTask.FromException<NodeCacheEntryPeek<string>>(new ServerCallException(FrameStatus.Unavailable, "unconfirmed")));
 
         // The inner double has no add set up: a call would throw a different exception.
-        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(cache.TryAddEntryAsync("op-2", CacheName, Key, entry, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(cache.TryAddEntryAsync("op-2", CacheName, Key, entry, null, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(refused.StatusCode).IsEqualTo(FrameStatus.Unavailable);
     }

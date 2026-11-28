@@ -43,7 +43,7 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         var physical = new PhysicalCache<StoredValue>(clock, new CacheEntrySizeEstimator<StoredValue>());
         var cache = Create(physical, meter, 1_000_000);
 
-        await cache.SetEntryAsync("op", "cache", "key", entry, cancellationToken);
+        await cache.SetEntryAsync("op", "cache", "key", entry, null, cancellationToken);
         var stored = await Assert.That(physical.GetEntry(new CacheKey("cache", "key"), cancellationToken)).IsNotNull();
 
         _ = await Assert.That(stored.Value.Bytes).IsSameReferenceAs(value.Bytes);
@@ -71,8 +71,8 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         var fits = Create(fitting, meter, expectedBytes + 1);
         var tight = Create(refused, meter, expectedBytes);
 
-        await fits.SetEntryAsync("op", "cache", "key", entry, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(tight.SetEntryAsync("op", "cache", "key", entry, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        await fits.SetEntryAsync("op", "cache", "key", entry, null, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(tight.SetEntryAsync("op", "cache", "key", entry, null, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(BytesOf(fitting)).IsEqualTo(expectedBytes);
         _ = await Assert.That(BytesOf(refused)).IsEqualTo(0L);
@@ -89,8 +89,8 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         var physical = new PhysicalCache<StoredValue>(TimeProvider.System, new CacheEntrySizeEstimator<StoredValue>(), options);
         var cache = Create(physical, meter, 300, options);
         var value = new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"));
-        await cache.SetEntryAsync("first", "cache", "a", value, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("second", "cache", "b", value, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        await cache.SetEntryAsync("first", "cache", "a", value, null, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("second", "cache", "b", value, null, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(physical.GetValue(new CacheKey("cache", "a"), cancellationToken).Found).IsTrue();
         _ = await Assert.That(physical.GetValue(new CacheKey("cache", "b"), cancellationToken).Found).IsFalse();

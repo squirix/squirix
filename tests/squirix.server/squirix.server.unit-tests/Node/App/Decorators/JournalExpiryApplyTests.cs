@@ -55,7 +55,7 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         await using (var harness = await Harness.CreateAsync(Dir, clock, cancellationToken))
         {
             var cache = harness.CreateDecorator(CreateDelayingInner(harness.Real, clock));
-            _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, CreateRelativeEntry(), cancellationToken)).IsTrue();
+            _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, CreateRelativeEntry(), null, cancellationToken)).IsTrue();
             await AssertMemoryDeadlineAsync(harness.Physical, cancellationToken);
         }
 
@@ -73,7 +73,7 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
             var cache = harness.CreateDecorator(CreateDelayingInner(harness.Real, clock));
             var entry = new NodeCacheEntry<string>("v", expiration: ApplyDelay / 2);
 
-            await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, entry, cancellationToken);
+            await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, entry, null, cancellationToken);
 
             _ = await Assert.That(harness.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
         }
@@ -92,7 +92,7 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         {
             await SeedTaggedEntryAsync(harness, cancellationToken);
             var cache = harness.CreateDecorator(CreateDelayingInner(harness.Real, clock));
-            _ = await Assert.That(await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, cancellationToken)).IsTrue();
+            _ = await Assert.That(await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, null, cancellationToken)).IsTrue();
             await AssertMemoryTaggedAsync(harness.Physical, cancellationToken);
         }
 
@@ -112,7 +112,7 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         await using (var harness = await Harness.CreateAsync(Dir, clock, cancellationToken))
         {
             var prepare = new JournalPayloadPrepareCacheDecorator<string>(harness.CreateDecorator(CreateDelayingInner(harness.Real, clock)));
-            _ = await Assert.That(await prepare.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, CreateRelativeEntry(), cancellationToken)).IsTrue();
+            _ = await Assert.That(await prepare.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, CreateRelativeEntry(), null, cancellationToken)).IsTrue();
             await AssertMemoryDeadlineAsync(harness.Physical, cancellationToken);
         }
 
@@ -128,7 +128,7 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         await using (var harness = await Harness.CreateAsync(Dir, clock, cancellationToken))
         {
             var prepare = new JournalPayloadPrepareCacheDecorator<string>(harness.CreateDecorator(CreateDelayingInner(harness.Real, clock)));
-            await prepare.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, CreateRelativeEntry(), cancellationToken);
+            await prepare.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, CreateRelativeEntry(), null, cancellationToken);
             await AssertMemoryDeadlineAsync(harness.Physical, cancellationToken);
         }
 
@@ -144,7 +144,7 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         await using (var harness = await Harness.CreateAsync(Dir, clock, cancellationToken))
         {
             var cache = harness.CreateDecorator(CreateDelayingInner(harness.Real, clock));
-            await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, CreateRelativeEntry(), cancellationToken);
+            await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, CreateRelativeEntry(), null, cancellationToken);
             await AssertMemoryDeadlineAsync(harness.Physical, cancellationToken);
         }
 
@@ -160,9 +160,9 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         await using (var harness = await Harness.CreateAsync(Dir, clock, cancellationToken))
         {
             var seeding = harness.CreateDecorator(harness.Real);
-            _ = await Assert.That(await seeding.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), cancellationToken)).IsTrue();
+            _ = await Assert.That(await seeding.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), null, cancellationToken)).IsTrue();
             var cache = harness.CreateDecorator(CreateDelayingInner(harness.Real, clock));
-            _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, cancellationToken)).IsTrue();
+            _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, null, cancellationToken)).IsTrue();
             await AssertMemoryDeadlineAsync(harness.Physical, cancellationToken);
         }
 
@@ -178,8 +178,8 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         await using (var harness = await Harness.CreateAsync(Dir, clock, cancellationToken))
         {
             var cache = harness.CreateDecorator(harness.Real);
-            _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), cancellationToken)).IsTrue();
-            _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, cancellationToken)).IsTrue();
+            _ = await Assert.That(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), null, cancellationToken)).IsTrue();
+            _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, null, cancellationToken)).IsTrue();
             await AssertMemoryDeadlineAsync(harness.Physical, cancellationToken);
         }
 
@@ -196,7 +196,7 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         {
             await SeedTaggedEntryAsync(harness, cancellationToken);
             var cache = harness.CreateDecorator(CreateDelayingInner(harness.Real, clock));
-            _ = await Assert.That(await cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, "v2", cancellationToken)).IsTrue();
+            _ = await Assert.That(await cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, "v2", null, cancellationToken)).IsTrue();
             await AssertMemoryTaggedAsync(harness.Physical, cancellationToken);
         }
 
@@ -251,7 +251,7 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["team"] = "a" }.ToFrozenDictionary(StringComparer.Ordinal);
         var seeded = new NodeCacheEntry<string>("v1", 3, Start.UtcDateTime.Add(Ttl), tags: tags);
         var seeding = harness.CreateDecorator(harness.Real);
-        _ = await Assert.That(await seeding.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, seeded, cancellationToken)).IsTrue();
+        _ = await Assert.That(await seeding.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, seeded, null, cancellationToken)).IsTrue();
     }
 
     private async Task AssertJournaledPutDeadlineAsync(CancellationToken cancellationToken)

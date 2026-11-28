@@ -233,7 +233,7 @@ internal static class ReplicaGroupCommitterBatches
                 var (request, mutation) = entries[0];
                 try
                 {
-                    request.Succeed(await committer.CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false));
+                    request.Succeed(await committer.CommitWithPreAppendResyncAsync(coordinator, mutation, null, request.LogScope).ConfigureAwait(false));
                 }
                 catch (Exception error)
                 {
@@ -271,12 +271,12 @@ internal static class ReplicaGroupCommitterBatches
             }
             catch (Exception error) when (ReplicaGroupCommitterCommits.IsPostAppendOutcome(error))
             {
-                committer.ReportPostAppendFailure(error, failedBefore);
+                committer.ReportPostAppendFailure(error, failedBefore, ScopesOf(entries));
                 committer.DecideAfterAppendFailure(entries);
             }
             catch (Exception error)
             {
-                var mapped = await committer.MapPreAppendFailureAsync(error, run[0], failedBefore, false).ConfigureAwait(false);
+                var mapped = await committer.MapPreAppendFailureAsync(error, run[0], failedBefore, false, ScopesOf(entries)).ConfigureAwait(false);
                 if (mapped is SquirixException { Code: SquirixErrorCode.CommitOutcomeUnknown })
                 {
                     committer.DecideAfterAppendFailure(entries);
@@ -344,4 +344,16 @@ internal static class ReplicaGroupCommitterBatches
         ServerOpIdMismatchException => new ServerOpIdMismatchException(),
         _ => shared,
     };
+
+    private static List<object>? ScopesOf(List<(ReplicaCommitRequestBase Request, PreparedReplicaMutation Mutation)> entries)
+    {
+        List<object>? scopes = null;
+        for (var i = 0; i < entries.Count; i++)
+        {
+            if (entries[i].Request.LogScope is { } scope)
+                (scopes ??= []).Add(scope);
+        }
+
+        return scopes;
+    }
 }

@@ -86,7 +86,7 @@ public sealed class ReplicaReapplyDurabilityWaitTests : IsolatedStorageTestBase
         _ = flaky.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
                  .ReturnsAsync((operationId, cacheName, key, entry, token) => Interlocked.Exchange(ref failing, 0) == 1
                       ? ValueTask.FromException(new IOException("Injected memory apply failure after the majority."))
-                      : journaled.SetEntryAsync(operationId, cacheName, key, entry, token));
+                      : journaled.SetEntryAsync(operationId, cacheName, key, entry, null, (true, null), token));
         await using var registry = await OpenRegistryAsync(GroupDir(), cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), flaky.Object, NullLogger<ReplicaGroupCommitter>.Instance);
         var first = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);

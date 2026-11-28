@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -159,7 +160,9 @@ public sealed class ReplicaCommitBatchIdentityTests : ServerUnitTestBase
     {
         var pipeline = new RunPipeline();
         await using var coordinator = NewCoordinator(pipeline, NewIdempotency(), TimeProvider.System);
-        pipeline.AmbientScope.Value = "caller";
+        using var activity = new Activity(nameof(RunPipeline));
+        _ = activity.Start();
+        activity.SetCustomProperty(nameof(RunPipeline.AppliedScopes), "caller");
 
         await coordinator.CommitBatchAsync(Run(1, 3), StallTimeout, cancellationToken);
         _ = await coordinator.CommitAsync(Mutation(4), StallTimeout, cancellationToken);

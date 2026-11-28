@@ -6,7 +6,6 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Logging;
@@ -43,7 +42,7 @@ public sealed class ReplicaPendingApplyScopeTests : IsolatedStorageTestBase
 
     /// <summary>Records the apply context after an injected failure on the first write.</summary>
     [ThreadSafe]
-    private sealed class ScopeRecordingCache : ILogicalNamespacedCache<StoredValue>
+    private sealed class ScopeRecordingCache : ILogicalNamespacedCache<StoredValue>, IReplicaCacheMutations<StoredValue>
     {
         private readonly ConcurrentQueue<(string Key, bool ReplicaApply)> _applied = new();
         private int _failNext = 1;
@@ -58,14 +57,14 @@ public sealed class ReplicaPendingApplyScopeTests : IsolatedStorageTestBase
 
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
-        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken)
-        {
-            if (Interlocked.Exchange(ref _failNext, 0) == 1)
-                return ValueTask.FromException(new InvalidOperationException("Injected memory apply failure after the majority."));
+        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, CancellationToken cancellationToken) =>
+            ApplyAsync(key, false);
 
-            _applied.Enqueue((key, ReplicaApplyContext.IsActive));
-            return ValueTask.CompletedTask;
-        }
+        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<StoredValue> entry, int? encodedLength, (bool ReplicaApply, object? Scope) mutation, CancellationToken cancellationToken) =>
+            ApplyAsync(key, mutation.ReplicaApply);
+
+        public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, bool replicaApply, CancellationToken cancellationToken, object? scope = null) =>
+            RemoveAsync(operationId, cacheName, key, cancellationToken);
 
         public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
@@ -93,6 +92,15 @@ public sealed class ReplicaPendingApplyScopeTests : IsolatedStorageTestBase
             }
 
             throw new InvalidOperationException($"Key '{key}' was never applied.");
+        }
+
+        private ValueTask ApplyAsync(string key, bool replicaApply)
+        {
+            if (Interlocked.Exchange(ref _failNext, 0) == 1)
+                return ValueTask.FromException(new InvalidOperationException("Injected memory apply failure after the majority."));
+
+            _applied.Enqueue((key, replicaApply));
+            return ValueTask.CompletedTask;
         }
     }
 }

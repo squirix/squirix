@@ -115,9 +115,9 @@ public sealed class PeerSessionDeadlineTests
         var options = new PeerSocketOptions(new SslClientAuthenticationOptions(), static _ => throw new InvalidOperationException("Expired calls cannot dial."));
         using var client = new NativePeerClient((new Uri("https://localhost"), "node-b"), certificate, verifier, new TrackedConnections(), TimeSpan.FromSeconds(1), null, options);
         var clock = new FakeTimeProvider();
-        using var budget = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime.AddSeconds(1), clock);
+        var budget = ServerDeadlineBudget.Start(clock.GetUtcNow().UtcDateTime.AddSeconds(1), clock);
         clock.Advance(TimeSpan.FromSeconds(2));
-        var result = client.SendAsync(PeerOperation.Ping, new SetAsyncResponse(), SetAsyncResponse.Parser, cancellationToken);
+        var result = client.SendWithDeadlineAsync(PeerOperation.Ping, new SetAsyncResponse(), SetAsyncResponse.Parser, budget, cancellationToken);
         var error = await NodeAsyncAssert.ThrowsAsync<ServerCallException>(result, TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
         _ = await Assert.That(error.StatusCode).IsEqualTo(FrameStatus.DeadlineExceeded);
     }

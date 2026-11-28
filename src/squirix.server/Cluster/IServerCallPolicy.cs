@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Node.Observability;
 
 namespace Squirix.Server.Cluster;
 
@@ -8,5 +9,5 @@ internal interface IServerCallPolicy : IAsyncDisposable
 {
     void BeginDrain();
 
-    ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken);
+    ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken, ServerDeadlineBudget? deadlineBudget = null);
 }

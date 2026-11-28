@@ -42,8 +42,8 @@ public sealed class MetricsCacheListenerTests : ServerUnitTestBase
         var instruments = new List<Instrument>();
 
         _ = await Assert.That(metrics.Enabled).IsFalse();
-        await cache.SetEntryAsync("op", "cache", "key", new NodeCacheEntry<string>("v"), cancellationToken);
-        _ = await Assert.That(await cache.GetValueAsync("cache", "key", cancellationToken)).IsEqualTo(new NodeCacheValueResult<string>(true, "v"));
+        await cache.SetEntryAsync("op", "cache", "key", new NodeCacheEntry<string>("v"), null, cancellationToken);
+        _ = await Assert.That(await cache.GetValueAsync("cache", "key", null, cancellationToken)).IsEqualTo(new NodeCacheValueResult<string>(true, "v"));
 
         using var listener = new MeterListener
         {
@@ -62,9 +62,9 @@ public sealed class MetricsCacheListenerTests : ServerUnitTestBase
         listener.Start();
 
         _ = await Assert.That(metrics.Enabled).IsTrue();
-        await cache.SetEntryAsync("op-2", "cache", "key", new NodeCacheEntry<string>("changed"), cancellationToken);
-        _ = await Assert.That(await cache.GetValueAsync("cache", "key", cancellationToken)).IsEqualTo(new NodeCacheValueResult<string>(true, "changed"));
-        _ = await Assert.That(await cache.GetValueAsync("cache", "missing", cancellationToken)).IsEqualTo(new NodeCacheValueResult<string>(false, null));
+        await cache.SetEntryAsync("op-2", "cache", "key", new NodeCacheEntry<string>("changed"), null, cancellationToken);
+        _ = await Assert.That(await cache.GetValueAsync("cache", "key", null, cancellationToken)).IsEqualTo(new NodeCacheValueResult<string>(true, "changed"));
+        _ = await Assert.That(await cache.GetValueAsync("cache", "missing", null, cancellationToken)).IsEqualTo(new NodeCacheValueResult<string>(false, null));
 
         _ = await Assert.That(counts.Count).IsEqualTo((flags & 1) != 0 ? 3 : 0);
         _ = await Assert.That(durations.Count).IsEqualTo((flags & 2) != 0 ? 3 : 0);
@@ -81,8 +81,8 @@ public sealed class MetricsCacheListenerTests : ServerUnitTestBase
             _ = listener.DisableMeasurementEvents(instruments[i]);
 
         _ = await Assert.That(metrics.Enabled).IsFalse();
-        await cache.SetEntryAsync("op-3", "cache", "key", new NodeCacheEntry<string>("after"), cancellationToken);
-        _ = await Assert.That(await cache.GetValueAsync("cache", "key", cancellationToken)).IsEqualTo(new NodeCacheValueResult<string>(true, "after"));
+        await cache.SetEntryAsync("op-3", "cache", "key", new NodeCacheEntry<string>("after"), null, cancellationToken);
+        _ = await Assert.That(await cache.GetValueAsync("cache", "key", null, cancellationToken)).IsEqualTo(new NodeCacheValueResult<string>(true, "after"));
         _ = await Assert.That(counts.Count).IsEqualTo((flags & 1) != 0 ? 3 : 0);
         _ = await Assert.That(durations.Count).IsEqualTo((flags & 2) != 0 ? 3 : 0);
     }
@@ -113,7 +113,7 @@ public sealed class MetricsCacheListenerTests : ServerUnitTestBase
         listener.SetMeasurementEventCallback<long>((_, _, tags, _) => results.Add(Tag(tags, "result")));
         listener.Start();
 
-        var thrown = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(cache.SetEntryAsync("op", "cache", "key", new NodeCacheEntry<string>("v"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var thrown = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(cache.SetEntryAsync("op", "cache", "key", new NodeCacheEntry<string>("v"), null, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);
         _ = await Assert.That(results.Count).IsEqualTo(enabled ? 1 : 0);
@@ -143,7 +143,7 @@ public sealed class MetricsCacheListenerTests : ServerUnitTestBase
         listener.SetMeasurementEventCallback<long>((_, value, _, _) => counts.Add(value));
         listener.Start();
 
-        var pending = cache.GetValueAsync("cache", "key", cancellationToken);
+        var pending = cache.GetValueAsync("cache", "key", null, cancellationToken);
         _ = await Assert.That(counts.Count).IsEqualTo(0);
         completion.SetResult(new NodeCacheValueResult<string>(true, "v"));
         var result = await pending;

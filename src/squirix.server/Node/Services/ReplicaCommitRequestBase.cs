@@ -60,6 +60,9 @@ internal abstract class ReplicaCommitRequestBase
     /// <summary>Gets the cache key the write decides.</summary>
     internal string Key { get; }
 
+    /// <summary>Gets or sets the explicit log scope supplied with the write.</summary>
+    internal object? LogScope { get; set; }
+
     /// <summary>Gets or sets the queue link, accessed only under the owning queue lock.</summary>
     internal LinkedListNode<ReplicaCommitRequestBase>? QueueNode { get; set; }
 

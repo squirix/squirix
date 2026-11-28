@@ -48,7 +48,7 @@ public sealed class AdmissionGetOrAddTests : DisposableServerUnitTestBase
                 return ValueTask.FromResult(new NodeCacheEntryPeek<string>(confirmed, false));
             });
 
-        var result = await cache.AddOrGetAsync(OperationId, CacheName, Key, Stored, cancellationToken);
+        var result = await cache.AddOrGetAsync(OperationId, CacheName, Key, Stored, null, cancellationToken);
 
         _ = await Assert.That(result.Added).IsFalse();
         _ = await Assert.That(result.Existing).IsEqualTo(new NodeCacheValueResult<string>(true, value));
@@ -64,7 +64,7 @@ public sealed class AdmissionGetOrAddTests : DisposableServerUnitTestBase
         _ = inner.TryAddEntryAsync(OperationId, CacheName, Key, Stored, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(true));
         var cache = Create(inner.Object, static (_, _, _) => true, static (_, _, _) => throw new InvalidOperationException("Unexpected fence."));
 
-        var result = await cache.AddOrGetAsync(OperationId, CacheName, Key, Stored, cancellationToken);
+        var result = await cache.AddOrGetAsync(OperationId, CacheName, Key, Stored, null, cancellationToken);
 
         _ = await Assert.That(result.Added).IsTrue();
         _ = await Assert.That(result.Existing.Found).IsFalse();
@@ -87,7 +87,7 @@ public sealed class AdmissionGetOrAddTests : DisposableServerUnitTestBase
                 return ValueTask.FromResult(new NodeCacheEntryPeek<string>(Stored, false));
             });
 
-        var result = await cache.AddOrGetAsync(OperationId, CacheName, Key, Stored, cancellationToken);
+        var result = await cache.AddOrGetAsync(OperationId, CacheName, Key, Stored, null, cancellationToken);
 
         _ = await Assert.That(result.Added).IsTrue();
     }
@@ -107,7 +107,7 @@ public sealed class AdmissionGetOrAddTests : DisposableServerUnitTestBase
         _ = inner.GetValueAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(existing));
         var cache = Create(inner.Object, static (_, _, _) => false, static (_, _, _) => throw new InvalidOperationException("Unexpected fence."));
 
-        var result = await cache.AddOrGetAsync(OperationId, CacheName, Key, Stored, cancellationToken);
+        var result = await cache.AddOrGetAsync(OperationId, CacheName, Key, Stored, null, cancellationToken);
 
         _ = await Assert.That(result).IsEqualTo(new NodeCacheAddOrGetResult<string>(false, existing));
     }
@@ -121,7 +121,7 @@ public sealed class AdmissionGetOrAddTests : DisposableServerUnitTestBase
         var cache = Create(StoredCache().Object, static (_, _, _) => false, (_, _, _) => ValueTask.FromException<NodeCacheEntryPeek<string>>(failure));
 
         var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, NodeCacheAddOrGetResult<string>>(
-            cache.AddOrGetAsync(OperationId, CacheName, Key, Stored, cancellationToken),
+            cache.AddOrGetAsync(OperationId, CacheName, Key, Stored, null, cancellationToken),
             TimeSpan.FromSeconds(30),
             TimeProvider.System,
             cancellationToken);
@@ -138,7 +138,7 @@ public sealed class AdmissionGetOrAddTests : DisposableServerUnitTestBase
         _ = inner.TryAddEntryAsync(OperationId, CacheName, Key, Stored, Arg.Any<CancellationToken>()).ReturnsAsync(ValueTask.FromResult(true));
         var cache = Create(inner.Object, static (_, _, _) => false, static (_, _, _) => ValueTask.FromResult(new NodeCacheEntryPeek<string>(Stored, true)));
 
-        var result = await cache.AddOrGetAsync(OperationId, CacheName, Key, Stored, cancellationToken);
+        var result = await cache.AddOrGetAsync(OperationId, CacheName, Key, Stored, null, cancellationToken);
 
         _ = await Assert.That(result.Added).IsTrue();
     }

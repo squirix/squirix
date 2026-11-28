@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,8 +21,6 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 [Immutable]
 public sealed class ReplicatedExpirationTests : ServerUnitTestBase
 {
-    private static readonly AsyncLocal<string?> CallerScope = new();
-
     /// <summary>A caller that stops waiting leaves the shared expiry running; a later caller of the key joins it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -336,8 +335,10 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
     [Test]
     public async Task SharedRunDropsCallerContext(CancellationToken cancellationToken)
     {
-        await using var expiration = new ReplicaExpirationCoordinator<string>(PerKey(static (_, _) => Task.FromResult(CallerScope.Value))) { ShutdownTimeProvider = TimeProvider.System };
-        CallerScope.Value = "caller";
+        await using var expiration = new ReplicaExpirationCoordinator<string>(PerKey(static (_, _) => Task.FromResult(Activity.Current?.GetCustomProperty(nameof(SharedRunDropsCallerContext)) as string))) { ShutdownTimeProvider = TimeProvider.System };
+        using var caller = new Activity(nameof(SharedRunDropsCallerContext));
+        _ = caller.Start();
+        caller.SetCustomProperty(nameof(SharedRunDropsCallerContext), "caller");
 
         var seen = await expiration.ExpireAsync("default", "key-a", cancellationToken);
 

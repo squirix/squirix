@@ -202,11 +202,8 @@ public sealed class ServerPhaseBudgetTests : DisposableServerUnitTestBase
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
 
-    private static async ValueTask<T> ExecuteAsync<TState, T>(ServerCallPolicy policy, Func<TState, CancellationToken, ValueTask<T>> action, TState state, CancellationToken cancellationToken, ServerDeadlineBudget? budget = null)
-    {
-        using var deadline = budget is { } value ? ServerRpcDeadlineContext.Push(in value) : ServerRpcDeadlineContext.Push(null, TimeProvider.System);
-        return await policy.ExecuteAsync(state, action, cancellationToken).ConfigureAwait(false);
-    }
+    private static ValueTask<T> ExecuteAsync<TState, T>(ServerCallPolicy policy, Func<TState, CancellationToken, ValueTask<T>> action, TState state, CancellationToken cancellationToken, ServerDeadlineBudget? budget = null) =>
+        policy.ExecuteAsync(state, action, cancellationToken, budget);
 
     private static async ValueTask<int> WaitUntilCanceledAsync(SemaphoreSlim entered, CancellationToken cancellationToken)
     {

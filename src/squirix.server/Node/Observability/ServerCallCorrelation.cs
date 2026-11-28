@@ -2,10 +2,11 @@ using System;
 using System.Diagnostics;
 using Squirix.Server.Attributes;
 using Squirix.Server.Logging;
+using Squirix.Transport.Binary;
 
 namespace Squirix.Server.Node.Observability;
 
-/// <summary>Opens the inbound trace activity and logging scope of a server call.</summary>
+/// <summary>Correlates inbound RPC result logs with their trace activity.</summary>
 [Immutable]
 internal sealed class ServerCallCorrelation
 {
@@ -32,5 +33,14 @@ internal sealed class ServerCallCorrelation
         return ActivitySourceHolder.StartServer(method, in parent);
     }
 
-    internal IDisposable? BeginLogScope(string method) => _log.IsScopeEnabled ? _log.BeginScope(Correlation.CreateScopeState(_nodeId, method)) : null;
+    internal object? CreateLogScope(string method, Activity? activity) =>
+        _log.IsScopeEnabled ? Correlation.CreateScopeState(activity, _nodeId, method) : null;
+
+    internal void LogResult(object? scope, FrameStatus status)
+    {
+        if (scope == null || !_log.IsEnabled(ServerLogLevel.Debug))
+            return;
+
+        _log.LogWithScope(ServerLogLevel.Debug, new ServerLogEventId(3099, "ServerRpcResult"), status, null, static (result, _) => $"Server RPC completed with {result}.", scope);
+    }
 }

@@ -40,8 +40,8 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
     {
         TimeSpan? seen = null;
         var api = ICacheApi<StoredValue>.Mock(MockBehavior.Strict);
-        _ = api.TouchAsync(string.Empty, Key, Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
-            .ReturnsAsync((_, _, expiration, _) =>
+        _ = api.TouchAsync(string.Empty, Key, Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>(), Arg.Any<ICacheRequestContext?>())
+            .ReturnsAsync((_, _, expiration, _, _) =>
             {
                 seen = expiration;
                 return ValueTask.FromResult(true);
@@ -64,8 +64,8 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
     {
         TimeSpan? seen = null;
         var api = ICacheApi<StoredValue>.Mock(MockBehavior.Strict);
-        _ = api.SetEntryAsync(string.Empty, Key, Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
-            .ReturnsAsync((_, _, entry, _) =>
+        _ = api.SetEntryAsync(string.Empty, Key, Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>(), Arg.Any<ICacheRequestContext?>())
+            .ReturnsAsync((_, _, entry, _, _) =>
             {
                 seen = entry.Expiration;
                 return ValueTask.CompletedTask;
@@ -87,8 +87,8 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
     {
         TimeSpan? seen = null;
         var api = ICacheApi<StoredValue>.Mock(MockBehavior.Strict);
-        _ = api.TryAddEntryAsync(string.Empty, Key, Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>())
-            .ReturnsAsync((_, _, entry, _) =>
+        _ = api.TryAddEntryAsync(string.Empty, Key, Arg.Any<NodeCacheEntry<StoredValue>>(), Arg.Any<CancellationToken>(), Arg.Any<ICacheRequestContext?>())
+            .ReturnsAsync((_, _, entry, _, _) =>
             {
                 seen = entry.Expiration;
                 return ValueTask.FromResult(true);

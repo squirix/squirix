@@ -20,6 +20,9 @@ internal sealed class CategoryLogger<T> : IServerLogger<T>
 
     public bool IsEnabled(ServerLogLevel logLevel) => _sink.IsEnabled(logLevel);
 
+    public void LogWithScope<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter, object? scope) =>
+        _sink.LogWithScope(logLevel, eventId, state, exception, formatter, scope);
+
     public void Log<TState>(ServerLogLevel logLevel, ServerLogEventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
         _sink.Log(logLevel, eventId, state, exception, formatter);
 }

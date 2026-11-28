@@ -67,13 +67,13 @@ public sealed class LocalExpirationSweepTests : ServerUnitTestBase
         var gate = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(physical), "n1", meter);
         var admission = new MemoryAdmissionCacheDecorator<object?>(new ClientCache<object?>(physical, physical), gate, estimator);
         foreach (var key in new[] { "a", "b", "c" })
-            await admission.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+            await admission.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, new NodeCacheEntry<object?>("v", 1, null, Ttl), null, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(admission.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "d", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(admission.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "d", new NodeCacheEntry<object?>("v", 1, null, Ttl), null, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         clock.Advance(Ttl);
         using var sweep = new LocalExpirationSweepService(physical.ExpiredKeys, clock, new EventRecordingLogger());
         _ = sweep.SweepOnce();
-        await admission.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "d", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await admission.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "d", new NodeCacheEntry<object?>("v", 1, null, Ttl), null, cancellationToken);
 
         ILocalCacheStats stats = physical;
         _ = await Assert.That(stats.EstimatedBytes).IsEqualTo(storedBytes);

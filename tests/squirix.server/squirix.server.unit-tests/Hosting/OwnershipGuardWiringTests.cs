@@ -74,7 +74,7 @@ public sealed class OwnershipGuardWiringTests : ServerUnitTestBase
                                          .Use(admission);
         await using var provider = new NodeProvider(services);
 
-        await provider.Require<ValidationCacheDecorator<StoredValue>>().SetEntryAsync("op", "c", "k", entry, cancellationToken);
+        await provider.Require<ValidationCacheDecorator<StoredValue>>().SetEntryAsync("op", "c", "k", entry, null, cancellationToken);
 
         store.SetEntryAsync("op", "c", "k", entry, cancellationToken).WasCalled(Times.Once);
         gate.AcquireAsync(Arg.Any<string>(), Arg.Any<string>(), "client", cancellationToken).WasCalled(Times.Once);
@@ -100,7 +100,7 @@ public sealed class OwnershipGuardWiringTests : ServerUnitTestBase
 
         static async Task SetAsync(OwnershipGuardCacheDecorator<StoredValue> guard, CancellationToken cancellationToken)
         {
-            await guard.SetEntryAsync("op", "c", "k", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v") }, cancellationToken);
+            await guard.SetEntryAsync("op", "c", "k", new NodeCacheEntry<StoredValue> { Value = StoredValue.FromText("v") }, null, cancellationToken);
         }
     }
 }

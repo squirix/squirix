@@ -41,35 +41,6 @@ public sealed class StructuredLogTests
         _ = await Assert.That(sink.Events[0].Cause).IsSameReferenceAs(failure);
     }
 
-    /// <summary>Child execution contexts inherit outer scopes and dispose their own scopes independently.</summary>
-    [Test]
-    public async Task NestedScopesStayInTheirAsyncFlow()
-    {
-        var scopes = new LoggerExternalScopeProvider();
-        using var outer = scopes.Push("outer");
-        var child = CollectChildAsync(scopes);
-        var parent = Collect(scopes);
-        var nested = await child;
-
-        _ = await Assert.That(string.Join(',', parent)).IsEqualTo("outer");
-        _ = await Assert.That(string.Join(',', nested)).IsEqualTo("outer,child");
-        _ = await Assert.That(string.Join(',', Collect(scopes))).IsEqualTo("outer");
-    }
-
-    private static async Task<List<string>> CollectChildAsync(LoggerExternalScopeProvider scopes)
-    {
-        using var inner = scopes.Push("child");
-        await Task.Yield();
-        return Collect(scopes);
-    }
-
-    private static List<string> Collect(LoggerExternalScopeProvider scopes)
-    {
-        var active = new List<string>();
-        scopes.ForEachScope(static (scope, target) => target.Add(scope as string ?? "<unexpected scope>"), active);
-        return active;
-    }
-
     private sealed class ErrorSink : IServerLogger
     {
         internal List<(int Id, Exception? Cause)> Events { get; } = [];

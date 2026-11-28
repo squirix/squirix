@@ -16,9 +16,12 @@ internal static class Correlation
     /// <param name="nodeId">Node identifier.</param>
     /// <param name="method">Optional RPC method name.</param>
     /// <remarks>The current <see cref="Activity" /> is captured by reference; ids are formatted only if a scope provider enumerates the state.</remarks>
-    /// <returns>The scope state to pass to <see cref="Squirix.Server.Logging.IServerLogger.BeginScope{TState}" />.</returns>
+    /// <returns>The structured scope fields.</returns>
     internal static IReadOnlyList<KeyValuePair<string, object?>> CreateScopeState(string nodeId, string? method = null) =>
-        new StandardScopeState(Activity.Current, nodeId, method);
+        CreateScopeState(Activity.Current, nodeId, method);
+
+    internal static IReadOnlyList<KeyValuePair<string, object?>> CreateScopeState(Activity? activity, string nodeId, string? method) =>
+        new StandardScopeState(activity, nodeId, method);
 
     private sealed class StandardScopeEnumerator : IEnumerator<KeyValuePair<string, object?>>
     {

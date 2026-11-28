@@ -84,7 +84,7 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         await inner.SetEntryAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, DateTime.UtcNow.AddMinutes(-1)), cancellationToken);
         var cache = new ReplicatedCache(inner, committers);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<StoredValue>?>(cache.GetEntryAsync(CacheName, "b", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<ServerCallException, NodeCacheEntry<StoredValue>?>(cache.GetEntryAsync(CacheName, "b", null, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((refused.StatusCode, refused.Message)).IsEqualTo((FrameStatus.Unavailable, ServerOpContract.ExpirationPendingDetail));
     }

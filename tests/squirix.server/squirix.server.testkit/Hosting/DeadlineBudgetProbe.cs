@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using Squirix.Server.Adapters.Endpoint;
-using Squirix.Server.Node.Observability;
 
 namespace Squirix.Server.TestKit.Hosting;
 
@@ -29,7 +28,7 @@ public sealed class DeadlineBudgetProbe
     internal void Register(TestServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        _ = services.AddSingleton(new BinaryCallObserver(_ => Record(ServerRpcDeadlineContext.CurrentBudget?.Remaining)));
+        _ = services.AddSingleton(new BinaryCallObserver(call => Record(call.Deadline?.Remaining)));
     }
 
     private void Record(TimeSpan? budget)

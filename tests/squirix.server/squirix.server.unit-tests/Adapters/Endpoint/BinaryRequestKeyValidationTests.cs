@@ -20,7 +20,7 @@ public sealed class BinaryRequestKeyValidationTests : ServerUnitTestBase
     [Arguments("", false)]
     public async Task RoutedResultStaysWithRequest(string key, bool valid)
     {
-        var requests = new BinaryRequestAccessor { Current = new BinaryRequestContext { Path = "/cache/Get" } };
+        var requests = new BinaryRequestContext { Path = "/cache/Get" };
         var accepted = CacheKeyValidator.TryValidate(key, out var routeError);
         requests.RecordRoute("cache", key, accepted ? null : routeError, accepted ? "group" : null);
         var found = requests.TryGet(key, out var savedError);
@@ -39,7 +39,7 @@ public sealed class BinaryRequestKeyValidationTests : ServerUnitTestBase
         _ = await Assert.That(localAccepted).IsFalse();
         _ = await Assert.That(localError).IsEqualTo(ServerKeyValidationError.ControlCharacters);
 
-        requests.Current = new BinaryRequestContext { Path = "/cache/Get" };
+        requests = new BinaryRequestContext { Path = "/cache/Get" };
         _ = await Assert.That(requests.TryGet(key, out _)).IsFalse();
         _ = await Assert.That(requests.FindGroup("cache", key)).IsNull();
     }

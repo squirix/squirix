@@ -116,7 +116,7 @@ public sealed class OwnerRouterTests
         }
 
         await using var provider = new NodeProvider(new NodeServices().AddSquirixClusterLocator(topology));
-        var context = new BinaryRequestAccessor { Current = new BinaryRequestContext { Path = "/cache/Get" } };
+        var context = new BinaryRequestContext { Path = "/cache/Get" };
         var router = new OwnerRouter(
             ownership.Object,
             CreateInvocationState(false),
@@ -193,7 +193,7 @@ public sealed class OwnerRouterTests
     [Test]
     public async Task RoutedGroupUsesCurrentAuthority(CancellationToken cancellationToken)
     {
-        var request = new BinaryRequestAccessor { Current = new BinaryRequestContext { Path = "/cache/Get" } };
+        var request = new BinaryRequestContext { Path = "/cache/Get" };
         var ownership = INodeOwnershipResolver.Mock(MockBehavior.Strict);
         _ = ownership.SelfNodeId.Returns(Self);
         _ = ownership.GetOwner("c", "k").Returns(Self);
@@ -227,8 +227,8 @@ public sealed class OwnerRouterTests
             "c",
             "k",
             guard,
-            static (_, _, _) => throw new InvalidOperationException("The request must stay local."),
-            static (cache, token) => cache.GetValueAsync("c", "k", token),
+            static (_, _, _, _) => throw new InvalidOperationException("The request must stay local."),
+            static (cache, token) => cache.GetValueAsync("c", "k", null, token),
             cancellationToken);
 
         view.Value = new GroupLeaderView(true, false, false, 2, 2, new LeaderRoute(Remote, 2));
@@ -246,7 +246,7 @@ public sealed class OwnerRouterTests
 
         static async Task ReadAsync(OwnershipGuardCacheDecorator<string> cache, CancellationToken token)
         {
-            _ = await cache.GetValueAsync("c", "k", token);
+            _ = await cache.GetValueAsync("c", "k", null, token);
         }
     }
 
@@ -284,7 +284,7 @@ public sealed class OwnerRouterTests
             cacheName,
             key,
             this,
-            static (calls, target, _) => calls.RecordAsync(target, calls._forwardFailure),
+            static (calls, target, _, _) => calls.RecordAsync(target, calls._forwardFailure),
             static (calls, _) => new ValueTask<string>(calls.RecordAsync(Local, null)),
             CancellationToken.None).AsTask();
 

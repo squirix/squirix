@@ -112,13 +112,12 @@ public sealed class ServerLoggerFactoryTests
         await File.WriteAllTextAsync(settings, """{"Logging":{"Console":{"FormatterName":"json","FormatterOptions":{"IncludeScopes":true}}}}""", cancellationToken);
         using var configuration = new ServerLoggingSettings(Path.Join(directory, "defaults.json"), directory, "Production");
         var output = new List<string>();
-        using IServerLoggerFactory factory = new ServerLoggerFactory(configuration, output.Add);
+        using var factory = new ServerLoggerFactory(configuration, output.Add);
         var cause = new IOException("No space left on device\n/data/replication/group.log.");
 
         var logger = factory.CreateLogger(category);
-        var correlation = new ServerCallCorrelation(factory.CreateLogger<ServerCallCorrelation>(), "node-a");
-        using var scope = correlation.BeginLogScope("/cache/SetEntry");
-        ReplicaCommitLog.ReplicaCommitOutcomeUnknown(logger, cause);
+        var scope = Correlation.CreateScopeState(null, "node-a", "/cache/SetEntry");
+        ReplicaCommitLog.ReplicaCommitOutcomeUnknown(logger, cause, scope);
         ReplicaCommitLog.ReplicaTailOfOlderTerm(logger, 41, 12);
 
         _ = await Assert.That(output.Count).IsEqualTo(2);
@@ -136,8 +135,6 @@ public sealed class ServerLoggerFactoryTests
     private static void ExerciseScope(ServerCallCorrelation correlation, int iterations)
     {
         for (var iteration = 0; iteration < iterations; iteration++)
-        {
-            using var scope = correlation.BeginLogScope("/cache/GetValue");
-        }
+            correlation.LogResult(correlation.CreateLogScope("/cache/GetValue", null), default);
     }
 }

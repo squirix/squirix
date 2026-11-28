@@ -48,7 +48,7 @@ public sealed class JournalRetentionQuotaTests : IsolatedStorageTestBase
             var usedAtQuota = session.Journal.UsedBytes;
             await PublishSnapshotAsync(session, kit, coordinator.CurrentSegmentIndex, coordinator.NextSequence, cancellationToken);
             await coordinator.WaitUntilAsync(j => j.UsedBytes < usedAtQuota - (FillValueLength * 2L), Bound, TimeProvider.System, cancellationToken);
-            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, JournalReplayKit.CacheName, "tail", new NodeCacheEntry<string>("tail-value"), cancellationToken);
+            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, JournalReplayKit.CacheName, "tail", new NodeCacheEntry<string>("tail-value"), null, cancellationToken);
             await session.Journal.AwaitDurabilityCommitAsync(cancellationToken);
         }
 
@@ -80,7 +80,7 @@ public sealed class JournalRetentionQuotaTests : IsolatedStorageTestBase
 
         _ = await Assert.That(session.Journal.UsedBytes).IsGreaterThanOrEqualTo(OnDiskBytes());
         _ = await Assert.That(JournalReadPath.EnumerateSegments(Dir, 1).Length).IsEqualTo(1);
-        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, JournalReplayKit.CacheName, "after-retention", new NodeCacheEntry<string>("v"), cancellationToken);
+        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, JournalReplayKit.CacheName, "after-retention", new NodeCacheEntry<string>("v"), null, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -97,7 +97,7 @@ public sealed class JournalRetentionQuotaTests : IsolatedStorageTestBase
         {
             try
             {
-                await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, JournalReplayKit.CacheName, $"fill-{i}", new NodeCacheEntry<string>(value), cancellationToken);
+                await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, JournalReplayKit.CacheName, $"fill-{i}", new NodeCacheEntry<string>(value), null, cancellationToken);
             }
             catch (JournalCapacityExceededException)
             {

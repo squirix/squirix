@@ -77,12 +77,12 @@ public sealed class JournalFootprintReplayTests : IsolatedStorageTestBase
         int entriesBefore;
         await using (var session = await Kit.OpenAsync(clock, cancellationToken))
         {
-            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "a", new NodeCacheEntry<string>("first", expiration: TimeSpan.FromHours(1)), cancellationToken);
-            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "b", new NodeCacheEntry<string>("second"), cancellationToken);
-            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "c", new NodeCacheEntry<string>("third"), cancellationToken);
-            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "a", new NodeCacheEntry<string>("a much longer replacement", expiration: TimeSpan.FromHours(1)), cancellationToken);
-            _ = await session.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, "b", TimeSpan.FromHours(1), cancellationToken);
-            _ = await session.Cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, "c", cancellationToken);
+            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "a", new NodeCacheEntry<string>("first", expiration: TimeSpan.FromHours(1)), null, cancellationToken);
+            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "b", new NodeCacheEntry<string>("second"), null, cancellationToken);
+            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "c", new NodeCacheEntry<string>("third"), null, cancellationToken);
+            await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "a", new NodeCacheEntry<string>("a much longer replacement", expiration: TimeSpan.FromHours(1)), null, cancellationToken);
+            _ = await session.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, "b", TimeSpan.FromHours(1), null, cancellationToken);
+            _ = await session.Cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, "c", null, cancellationToken);
             before = BytesOf(session.Physical);
             entriesBefore = CountOf(session.Physical);
         }

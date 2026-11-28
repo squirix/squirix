@@ -23,34 +23,34 @@ internal sealed class RoutedCacheApi<T> : ICacheApi<T>
         _cacheName = cacheName;
     }
 
-    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string key, CancellationToken cancellationToken) => _namespaced.GetEntryAsync(_cacheName, key, cancellationToken);
+    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string key, CancellationToken cancellationToken, ICacheRequestContext? context = null) => _namespaced.GetEntryForRequestAsync(_cacheName, key, cancellationToken, context);
 
-    public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string key, CancellationToken cancellationToken) =>
-        _namespaced.GetValueWithDeadlineAsync(_cacheName, key, cancellationToken);
+    public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string key, CancellationToken cancellationToken, ICacheRequestContext? context = null) =>
+        _namespaced.GetValueWithDeadlineForRequestAsync(_cacheName, key, cancellationToken, context);
 
-    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string key, CancellationToken cancellationToken) => _namespaced.GetValueAsync(_cacheName, key, cancellationToken);
+    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string key, CancellationToken cancellationToken, ICacheRequestContext? context = null) => _namespaced.GetValueForRequestAsync(_cacheName, key, cancellationToken, context);
 
-    public ValueTask<bool> RemoveAsync(string operationId, string key, CancellationToken cancellationToken) =>
-        _namespaced.RemoveAsync(operationId, _cacheName, key, cancellationToken);
+    public ValueTask<bool> RemoveAsync(string operationId, string key, CancellationToken cancellationToken, ICacheRequestContext? context = null) =>
+        _namespaced.RemoveForRequestAsync(operationId, _cacheName, key, cancellationToken, context);
 
-    public ValueTask<bool> RemoveExpirationAsync(string operationId, string key, CancellationToken cancellationToken) =>
-        _namespaced.RemoveExpirationAsync(operationId, _cacheName, key, cancellationToken);
+    public ValueTask<bool> RemoveExpirationAsync(string operationId, string key, CancellationToken cancellationToken, ICacheRequestContext? context = null) =>
+        _namespaced.RemoveExpirationForRequestAsync(operationId, _cacheName, key, cancellationToken, context);
 
-    public ValueTask SetEntryAsync(string operationId, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
-        _namespaced.SetEntryAsync(operationId, _cacheName, key, entry, cancellationToken);
+    public ValueTask SetEntryAsync(string operationId, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, ICacheRequestContext? context = null) =>
+        _namespaced.SetEntryForRequestAsync(operationId, _cacheName, key, entry, cancellationToken, context);
 
-    public ValueTask<bool> TouchAsync(string operationId, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
-        _namespaced.TouchAsync(operationId, _cacheName, key, expiration, cancellationToken);
+    public ValueTask<bool> TouchAsync(string operationId, string key, TimeSpan expiration, CancellationToken cancellationToken, ICacheRequestContext? context = null) =>
+        _namespaced.TouchForRequestAsync(operationId, _cacheName, key, expiration, cancellationToken, context);
 
-    public ValueTask<bool> TryAddEntryAsync(string operationId, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
-        _namespaced.TryAddEntryAsync(operationId, _cacheName, key, entry, cancellationToken);
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, ICacheRequestContext? context = null) =>
+        _namespaced.TryAddEntryForRequestAsync(operationId, _cacheName, key, entry, cancellationToken, context);
 
-    public ValueTask<bool> TryReplaceEntryAsync(string operationId, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
-        _namespaced.TryReplaceEntryAsync(operationId, _cacheName, key, entry, cancellationToken);
+    public ValueTask<bool> TryReplaceEntryAsync(string operationId, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, ICacheRequestContext? context = null) =>
+        _namespaced.TryReplaceEntryForRequestAsync(operationId, _cacheName, key, entry, cancellationToken, context);
 
-    public ValueTask<bool> UpdateAsync(string operationId, string key, T? value, CancellationToken cancellationToken) =>
-        _namespaced.UpdateAsync(operationId, _cacheName, key, value, cancellationToken);
+    public ValueTask<bool> UpdateAsync(string operationId, string key, T? value, CancellationToken cancellationToken, ICacheRequestContext? context = null) =>
+        _namespaced.UpdateForRequestAsync(operationId, _cacheName, key, value, cancellationToken, context);
 
-    public ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
-        _namespaced.AddOrGetAsync(operationId, _cacheName, key, entry, cancellationToken);
+    public ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, ICacheRequestContext? context = null) =>
+        _namespaced.AddOrGetForRequestAsync(operationId, _cacheName, key, entry, cancellationToken, context);
 }

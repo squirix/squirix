@@ -6,7 +6,6 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App;
-using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -273,11 +272,8 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
         return new ValueTask<(ulong Watermark, string Memory)>((watermark, memory.Snapshot));
     }
 
-    private static async Task<int> ReplicatedPutAsync(Target target, string key, CancellationToken cancellationToken)
-    {
-        using var applying = ReplicaApplyContext.Enter();
-        return await target.Memory.PutAsync(target.Executor, target.Journal.Journal, key, cancellationToken);
-    }
+    private static Task<int> ReplicatedPutAsync(Target target, string key, CancellationToken cancellationToken) =>
+        target.Memory.PutAsync(target.Executor, target.Journal.Journal, key, key, cancellationToken, true);
 
     /// <summary>Creates a journal whose segment header and a first frame are already durable, so later stalls catch only the frames under test.</summary>
     /// <param name="groupCommit">Whether journal group commit is enabled.</param>

@@ -39,7 +39,7 @@ public sealed class AdmissionDeadlineAgreementTests : DisposableServerUnitTestBa
         var (fitting, fittingCache) = Create(growth + 1, estimator);
         var (tight, tightCache) = Create(growth, estimator);
 
-        await fitting.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, entry, cancellationToken);
+        await fitting.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, entry, null, cancellationToken);
         _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(SetAsync(tight, entry, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(BytesOf(fittingCache)).IsEqualTo(growth);
@@ -57,7 +57,7 @@ public sealed class AdmissionDeadlineAgreementTests : DisposableServerUnitTestBa
         var (fitting, fittingCache) = Create(growth + 1, estimator);
         var (tight, tightCache) = Create(growth, estimator);
 
-        await fitting.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, entry, cancellationToken);
+        await fitting.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, entry, null, cancellationToken);
         _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(SetAsync(tight, entry, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(BytesOf(fittingCache)).IsEqualTo(growth);
@@ -81,7 +81,7 @@ public sealed class AdmissionDeadlineAgreementTests : DisposableServerUnitTestBa
         fittingCache.Set(key, seeded, cancellationToken);
         tightCache.Set(key, seeded, cancellationToken);
 
-        _ = await Assert.That(await fitting.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, updated.Value, cancellationToken)).IsTrue();
+        _ = await Assert.That(await fitting.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, updated.Value, null, cancellationToken)).IsTrue();
         _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException, bool>(UpdateAsync(tight, updated.Value, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(BytesOf(fittingCache)).IsEqualTo(seededBytes + growth);
@@ -94,10 +94,10 @@ public sealed class AdmissionDeadlineAgreementTests : DisposableServerUnitTestBa
     private static long BytesOf(ILocalCacheStats stats) => stats.EstimatedBytes;
 
     private static Task SetAsync<T>(MemoryAdmissionCacheDecorator<T> cache, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
-        cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, entry, cancellationToken).AsTask();
+        cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, entry, null, cancellationToken).AsTask();
 
     private static ValueTask<bool> UpdateAsync(MemoryAdmissionCacheDecorator<string> cache, string? value, CancellationToken cancellationToken) =>
-        cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, value, cancellationToken);
+        cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, value, null, cancellationToken);
 
     private (MemoryAdmissionCacheDecorator<T> Decorator, PhysicalCache<T> Cache) Create<T>(long maxEstimatedCacheBytes, ICacheEntrySizeEstimator<T> estimator)
     {

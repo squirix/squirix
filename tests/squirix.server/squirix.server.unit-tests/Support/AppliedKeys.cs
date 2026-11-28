@@ -48,8 +48,10 @@ internal sealed class AppliedKeys
     /// <param name="key">Default-namespace key to put.</param>
     /// <param name="value">Cache value encoded into the put frame.</param>
     /// <param name="cancellationToken">Caller cancellation token.</param>
+    /// <param name="replicaApply">Whether the mutation is already durable in the group log.</param>
+    /// <param name="scope">Request correlation fields.</param>
     /// <returns>The mutation task.</returns>
-    internal Task<int> PutAsync(DurableMutationExecutor executor, IJournalCoordinator journal, string key, string value, CancellationToken cancellationToken)
+    internal Task<int> PutAsync(DurableMutationExecutor executor, IJournalCoordinator journal, string key, string value, CancellationToken cancellationToken, bool replicaApply = false, object? scope = null)
     {
         ArgumentNullException.ThrowIfNull(executor);
         var cacheKey = CacheKey.Default(key);
@@ -60,7 +62,9 @@ internal sealed class AppliedKeys
                 (journal, cacheKey, JournalEntryPayloadKit.EncodePut(value), this),
                 static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, s.Key, s.Payload, ct),
                 static (s, _) => s.Memory.ApplyAsync(s.Key)),
-            cancellationToken).AsTask();
+            cancellationToken,
+            replicaApply,
+            scope).AsTask();
     }
 
     /// <summary>Runs one add-if-absent through <paramref name="executor" />: the precondition skips with 0 when the key is already applied, otherwise the put is journaled and applied.</summary>

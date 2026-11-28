@@ -30,7 +30,7 @@ namespace Squirix.Server.Node.App.Decorators;
 /// </remarks>
 /// <typeparam name="T">The cache value type.</typeparam>
 [Immutable]
-internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<T>
+internal sealed class OwnershipGuardCacheDecorator<T> : IRequestCache<T>
 {
     private readonly ILogicalNamespacedCache<T> _inner;
     private readonly bool _leaderHints;
@@ -60,75 +60,75 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
         _routing = routing;
     }
 
-    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken)
     {
-        EnsureLocalOwner(cacheName, key);
-        return _inner.GetEntryAsync(cacheName, key, cancellationToken);
+        EnsureLocalOwner(cacheName, key, request);
+        return _inner.GetEntryForRequestAsync(cacheName, key, cancellationToken, request);
     }
 
-    public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken)
+    public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken)
     {
-        EnsureLocalOwner(cacheName, key);
-        return _inner.GetValueWithDeadlineAsync(cacheName, key, cancellationToken);
+        EnsureLocalOwner(cacheName, key, request);
+        return _inner.GetValueWithDeadlineForRequestAsync(cacheName, key, cancellationToken, request);
     }
 
-    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
+    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken)
     {
-        EnsureLocalOwner(cacheName, key);
-        return _inner.GetValueAsync(cacheName, key, cancellationToken);
+        EnsureLocalOwner(cacheName, key, request);
+        return _inner.GetValueForRequestAsync(cacheName, key, cancellationToken, request);
     }
 
-    public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+    public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken)
     {
-        EnsureLocalOwner(cacheName, key);
-        return _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
+        EnsureLocalOwner(cacheName, key, request);
+        return _inner.RemoveForRequestAsync(operationId, cacheName, key, cancellationToken, request);
     }
 
-    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken)
     {
-        EnsureLocalOwner(cacheName, key);
-        return _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken);
+        EnsureLocalOwner(cacheName, key, request);
+        return _inner.RemoveExpirationForRequestAsync(operationId, cacheName, key, cancellationToken, request);
     }
 
-    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, ICacheRequestContext? request, CancellationToken cancellationToken)
     {
-        EnsureLocalOwner(cacheName, key);
-        return _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
+        EnsureLocalOwner(cacheName, key, request);
+        return _inner.SetEntryForRequestAsync(operationId, cacheName, key, entry, cancellationToken, request);
     }
 
-    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
+    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, ICacheRequestContext? request, CancellationToken cancellationToken)
     {
-        EnsureLocalOwner(cacheName, key);
-        return _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken);
+        EnsureLocalOwner(cacheName, key, request);
+        return _inner.TouchForRequestAsync(operationId, cacheName, key, expiration, cancellationToken, request);
     }
 
-    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, ICacheRequestContext? request, CancellationToken cancellationToken)
     {
-        EnsureLocalOwner(cacheName, key);
-        return _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
+        EnsureLocalOwner(cacheName, key, request);
+        return _inner.TryAddEntryForRequestAsync(operationId, cacheName, key, entry, cancellationToken, request);
     }
 
-    public ValueTask<bool> TryReplaceEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask<bool> TryReplaceEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, ICacheRequestContext? request, CancellationToken cancellationToken)
     {
-        EnsureLocalOwner(cacheName, key);
-        return _inner.TryReplaceEntryAsync(operationId, cacheName, key, entry, cancellationToken);
+        EnsureLocalOwner(cacheName, key, request);
+        return _inner.TryReplaceEntryForRequestAsync(operationId, cacheName, key, entry, cancellationToken, request);
     }
 
-    public ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, ICacheRequestContext? request, CancellationToken cancellationToken)
     {
-        EnsureLocalOwner(cacheName, key);
-        return _inner.AddOrGetAsync(operationId, cacheName, key, entry, cancellationToken);
+        EnsureLocalOwner(cacheName, key, request);
+        return _inner.AddOrGetForRequestAsync(operationId, cacheName, key, entry, cancellationToken, request);
     }
 
-    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
+    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, ICacheRequestContext? request, CancellationToken cancellationToken)
     {
-        EnsureLocalOwner(cacheName, key);
-        return _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
+        EnsureLocalOwner(cacheName, key, request);
+        return _inner.UpdateForRequestAsync(operationId, cacheName, key, value, cancellationToken, request);
     }
 
-    private void EnsureLocalOwner(string cacheName, string key)
+    private void EnsureLocalOwner(string cacheName, string key, IRoutedKeyContext? request)
     {
-        var owner = _routing?.FindGroup(cacheName, key) ?? _locator.GetOwner(cacheName, key);
+        var owner = (request ?? _routing)?.FindGroup(cacheName, key) ?? _locator.GetOwner(cacheName, key);
         var view = _leaders.Read(owner);
         if (!view.Served)
             throw StaleOwnerFailure.Create(owner, _self);

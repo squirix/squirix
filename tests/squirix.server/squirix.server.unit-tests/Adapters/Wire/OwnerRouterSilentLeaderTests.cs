@@ -160,7 +160,7 @@ public sealed class OwnerRouterSilentLeaderTests : ServerUnitTestBase
             "cache",
             "key",
             targets,
-            static (sent, target, _) =>
+            static (sent, target, _, _) =>
             {
                 sent.Add(target);
                 return Task.FromResult(target);

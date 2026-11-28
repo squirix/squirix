@@ -230,7 +230,7 @@ internal sealed class JournalReplayKit
         await using var session = await OpenAsync(clock, cancellationToken);
         var coordinator = (await Assert.That(session.Journal).IsTypeOf<JournalCoordinator>())!;
         var writeStart = clock.GetUtcNow().UtcDateTime;
-        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: ttl), cancellationToken);
+        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: ttl), null, cancellationToken);
         var snapshotted = session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(snapshotted).IsNotNull();
 

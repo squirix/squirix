@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -24,8 +25,6 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
     /// Caller-scoped async-local operation id standing in for the RPC idempotency scope that stamps cache-WAL frames: both flow with the
     /// execution context, which is what the coordinator must not carry into a re-applied earlier entry.
     /// </summary>
-    private static readonly AsyncLocal<string?> CallerOperationId = new();
-
     private static readonly TimeSpan CommitBudget = TimeSpan.FromMilliseconds(200);
 
     /// <summary>Past the coordinator's 5 s bound on the first wait of background follower observation.</summary>
@@ -183,15 +182,10 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
         var firstError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(CreateMutation(1, "00000000000000000000000000000001", 11), StallTimeout, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(firstError.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
-        CallerOperationId.Value = ForeignOperationId;
-        try
-        {
-            _ = await coordinator.CommitAsync(CreateMutation(2, ForeignOperationId, 12), StallTimeout, cancellationToken);
-        }
-        finally
-        {
-            CallerOperationId.Value = null;
-        }
+        using var activity = new Activity(nameof(ReplicaPendingApplyTests));
+        _ = activity.Start();
+        activity.SetCustomProperty(nameof(ForeignOperationId), ForeignOperationId);
+        _ = await coordinator.CommitAsync(CreateMutation(2, ForeignOperationId, 12), StallTimeout, cancellationToken);
 
         await SequenceAssert.EqualAsync([1UL, 2UL], pipeline.AppliedIndexes());
         _ = await Assert.That(pipeline.StampFor(1)).IsNull();
@@ -251,7 +245,7 @@ public sealed class ReplicaPendingApplyTests : ServerUnitTestBase
             if (Interlocked.Exchange(ref _failFirstApply, 0) == 1)
                 return ValueTask.FromException(new InvalidOperationException("Injected memory apply failure after the majority."));
 
-            Applied.Enqueue((mutation.LogIndex, CallerOperationId.Value));
+            Applied.Enqueue((mutation.LogIndex, Activity.Current?.GetCustomProperty(nameof(ForeignOperationId)) as string));
             _ = _firstApplied.TrySetResult();
             return ValueTask.CompletedTask;
         }

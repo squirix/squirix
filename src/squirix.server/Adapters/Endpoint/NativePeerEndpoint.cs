@@ -147,7 +147,7 @@ internal sealed class NativePeerEndpoint
         var clock = _services.Require<TimeProvider>();
         var started = clock.GetTimestamp();
         TimeSpan? budget = frame.Budget < 0 ? null : TimeSpan.FromTicks(frame.Budget);
-        using var deadlineScope = budget is { } time ? ServerRpcDeadlineContext.Push(new ServerDeadlineBudget(clock, time, started)) : null;
+        ServerDeadlineBudget? deadlineBudget = budget is { } time ? new ServerDeadlineBudget(clock, time, started) : null;
         using var deadline = new TimedCancellation(budget ?? Timeout.InfiniteTimeSpan, clock, abort);
         var meta = ArrayPool<byte>.Shared.Rent(frame.Metadata);
 
@@ -164,7 +164,7 @@ internal sealed class NativePeerEndpoint
             await stream.ReadExactlyAsync(body.AsMemory(0, frame.Body), reading.Token).ConfigureAwait(false);
             if (!_verifier.TryVerify(certificate, out var peer))
                 return false;
-            reply = await DispatchAsync(frame, meta, body.AsMemory(0, frame.Body), certificate, peer, token).ConfigureAwait(false);
+            reply = await DispatchAsync(frame, meta, body.AsMemory(0, frame.Body), certificate, peer, deadlineBudget, token).ConfigureAwait(false);
         }
         catch (ServerCallException error)
         {
@@ -192,7 +192,7 @@ internal sealed class NativePeerEndpoint
         return true;
     }
 
-    private async Task<BinaryResponse> DispatchAsync(PeerFrames.Request frame, byte[] meta, ReadOnlyMemory<byte> body, X509Certificate2 certificate, string peer, CancellationToken cancellationToken)
+    private async Task<BinaryResponse> DispatchAsync(PeerFrames.Request frame, byte[] meta, ReadOnlyMemory<byte> body, X509Certificate2 certificate, string peer, ServerDeadlineBudget? deadlineBudget, CancellationToken cancellationToken)
     {
         if (frame.Operation == PeerOperation.Ping)
             return new BinaryResponse(body.IsEmpty ? FrameStatus.Ok : FrameStatus.InvalidArgument);
@@ -209,24 +209,17 @@ internal sealed class NativePeerEndpoint
             else
                 agreement.EnsureInboundAgreement(frame.Fingerprint == 0 ? null : PeerFrames.Text.GetString(meta, 0, frame.Fingerprint), peer);
             var call = new BinaryRequestContext { Path = fullPath, RequestAborted = cancellationToken, TraceParent = parent, TraceState = state };
-            var request = new BinaryDispatch.Request(call, default, Task.CompletedTask, true);
-            var accessor = _services.Require<BinaryRequestAccessor>();
-            accessor.Current = call;
-            try
-            {
-                return await _services.Require<BinaryDispatch>().ExecuteOwnerAsync(frame.Operation, operation, body, in request).ConfigureAwait(false);
-            }
-            finally
-            {
-                accessor.Current = null;
-            }
+            var request = new BinaryDispatch.Request(call, deadlineBudget, Task.CompletedTask, true);
+            return await _services.Require<BinaryDispatch>().ExecuteOwnerAsync(frame.Operation, operation, body, in request).ConfigureAwait(false);
         }
 
         if (!_replication)
             return new BinaryResponse(FrameStatus.Unimplemented);
         var context = new PeerCallContext { ClientCertificate = certificate, InternalListener = true, LocalPort = _port, RequestAborted = cancellationToken };
         using var activity = ServerCallCorrelation.StartActivity(fullPath, parent, state);
-        using var log = _services.Require<ServerCallCorrelation>().BeginLogScope(fullPath);
-        return await PeerDispatch.DispatchAsync(frame.Operation, body, context, _services.Require<SquirixReplicationServiceAdapter>()).ConfigureAwait(false);
+        var response = await PeerDispatch.DispatchAsync(frame.Operation, body, context, _services.Require<SquirixReplicationServiceAdapter>()).ConfigureAwait(false);
+        var correlation = _services.Require<ServerCallCorrelation>();
+        correlation.LogResult(correlation.CreateLogScope(fullPath, activity), response.Status);
+        return response;
     }
 }

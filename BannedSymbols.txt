@@ -43,3 +43,4 @@ M:System.IO.File.Move(System.String,System.String,System.Boolean);Durable files 
 M:System.IO.Path.Combine(System.ReadOnlySpan{System.String});Use Path.Join instead of Path.Combine.
 // Roslyn compiler stack has no trim/NativeAOT story; use System.Reflection.Metadata for assembly metadata instead.
 N:Microsoft.CodeAnalysis;Microsoft.CodeAnalysis (Roslyn compiler stack) is banned. Use System.Reflection.Metadata (PEReader/MetadataReader) for assembly metadata instead.
+T:System.Threading.AsyncLocal`1;Pass context explicitly through parameters.

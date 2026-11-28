@@ -25,7 +25,7 @@ public sealed class RespBatchTests
     {
         await using var host = await RespTestHost.StartAsync(cancellationToken);
         var services = host.Server.Services;
-        var cache = new CacheCommands(services.Require<BinaryRequestAccessor>(), services.Require<BinaryDispatch>(), null, TimeProvider.System, false);
+        var cache = new CacheCommands(services.Require<BinaryDispatch>(), null, TimeProvider.System, false);
         var session = new Session(null, cache, 1, TimeProvider.System);
         byte[] requests = [.. "*1\r\n$4\r\nPING\r\n*2\r\n$4\r\nECHO\r\n$3\r\n"u8, 0, 255, 13, .. "\r\n*1\r\n$4\r\nPING\r\n"u8];
         await using var stream = new RecordingReplyStream(requests, int.MaxValue);
@@ -45,7 +45,7 @@ public sealed class RespBatchTests
     {
         await using var host = await RespTestHost.StartAsync(cancellationToken);
         var services = host.Server.Services;
-        var cache = new CacheCommands(services.Require<BinaryRequestAccessor>(), services.Require<BinaryDispatch>(), null, TimeProvider.System, false);
+        var cache = new CacheCommands(services.Require<BinaryDispatch>(), null, TimeProvider.System, false);
         var session = new Session(null, cache, 1, TimeProvider.System);
         var requests = Encoding.ASCII.GetBytes(RespTestHost.Command("PING") + RespTestHost.Command("PING"));
         await using var stream = new RecordingReplyStream(requests, RespTestHost.Command("PING").Length + 2);
@@ -65,7 +65,7 @@ public sealed class RespBatchTests
     {
         await using var host = await RespTestHost.StartAsync(cancellationToken);
         var services = host.Server.Services;
-        var cache = new CacheCommands(services.Require<BinaryRequestAccessor>(), services.Require<BinaryDispatch>(), null, TimeProvider.System, false);
+        var cache = new CacheCommands(services.Require<BinaryDispatch>(), null, TimeProvider.System, false);
         var session = new Session(null, cache, 1, TimeProvider.System);
         byte[] requests = [.. "*1\r\n$4\r\nPING\r\n*0\r\n*1\r\n$4\r\nPING\r\n"u8];
         await using var stream = new RecordingReplyStream(requests, int.MaxValue);
@@ -89,7 +89,7 @@ public sealed class RespBatchTests
             _ = services.AddSingleton<IConnectionTokenObserver>(observer));
         var services = host.Server.Services;
         var validator = services.Require<NativeConnectionAuthenticationValidator>();
-        var cache = new CacheCommands(services.Require<BinaryRequestAccessor>(), services.Require<BinaryDispatch>(), validator, TimeProvider.System, false);
+        var cache = new CacheCommands(services.Require<BinaryDispatch>(), validator, TimeProvider.System, false);
         var session = new Session(validator, cache, 1, TimeProvider.System);
         var requests = RespTestHost.Command("AUTH", token) + RespTestHost.Command("PING") + RespTestHost.Command("AUTH", token);
         await using var stream = new RecordingReplyStream(Encoding.ASCII.GetBytes(requests), int.MaxValue);
@@ -125,7 +125,7 @@ public sealed class RespBatchTests
             _ = services.AddSingleton<IConnectionTokenObserver>(observer));
         var services = host.Server.Services;
         var validator = services.Require<NativeConnectionAuthenticationValidator>();
-        var cache = new CacheCommands(services.Require<BinaryRequestAccessor>(), services.Require<BinaryDispatch>(), validator, TimeProvider.System, false);
+        var cache = new CacheCommands(services.Require<BinaryDispatch>(), validator, TimeProvider.System, false);
         var session = new Session(validator, cache, 1, TimeProvider.System);
         var requests = RespTestHost.Command("AUTH", token) + RespTestHost.Command("PING") + RespTestHost.Command("AUTH", token);
         await using var stream = new RecordingReplyStream(Encoding.ASCII.GetBytes(requests), int.MaxValue, true);

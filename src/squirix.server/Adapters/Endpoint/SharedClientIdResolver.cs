@@ -1,6 +1,5 @@
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
-using Squirix.Server.Runtime.Invocation;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
@@ -18,7 +17,5 @@ internal sealed class SharedClientIdResolver : IBackpressureClientIdResolver
     internal static SharedClientIdResolver Instance { get; } = new();
 
     /// <inheritdoc />
-    public string Resolve() => RemoteInvocationContext.IsInternalOwnerInvocation
-        ? ClientIds.InternalOwner
-        : ClientIds.Runtime;
+    public string Resolve() => ClientIds.Runtime;
 }

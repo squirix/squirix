@@ -38,8 +38,8 @@ public sealed class ReplicaGroupCommittersTests : ServerUnitTestBase
         await using var committers = LeadTwo(registry, (new ScriptedGateway(), new ScriptedGateway()), cache, TimeProvider.System);
         var replicated = new ReplicatedCache(cache, committers);
 
-        await replicated.SetEntryAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken);
-        await replicated.SetEntryAsync(NewOperationId(), CacheName, "a", Entry("a"), cancellationToken);
+        await replicated.SetEntryAsync(NewOperationId(), CacheName, "b", Entry("b"), null, cancellationToken);
+        await replicated.SetEntryAsync(NewOperationId(), CacheName, "a", Entry("a"), null, cancellationToken);
 
         await SequenceAssert.EqualAsync(["a"], await KeysAsync(registry, "n1", cancellationToken), StringComparer.Ordinal);
         await SequenceAssert.EqualAsync(["b"], await KeysAsync(registry, "n2", cancellationToken), StringComparer.Ordinal);

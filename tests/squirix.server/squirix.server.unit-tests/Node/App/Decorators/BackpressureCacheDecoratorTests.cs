@@ -59,10 +59,10 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
         var cacheA = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-a"));
         var cacheB = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-b"));
 
-        var rejected = await NodeAsyncAssert.ThrowsAsync<SquirixException, NodeCacheValueResult<string>>(cacheA.GetValueAsync("c", "k", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var rejected = await NodeAsyncAssert.ThrowsAsync<SquirixException, NodeCacheValueResult<string>>(cacheA.GetValueAsync("c", "k", null, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(rejected.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
 
-        var otherClient = await cacheB.GetValueAsync("c", "k", cancellationToken);
+        var otherClient = await cacheB.GetValueAsync("c", "k", null, cancellationToken);
         _ = await Assert.That(otherClient.Found).IsFalse();
         _ = await Assert.That(Volatile.Read(ref getValueCalls)).IsEqualTo(1);
     }
@@ -101,11 +101,11 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
         var cacheB = new BackpressureCacheDecorator<string>(inner, gate, CreateClientIdResolver("jwt:client-b"));
         var entry = new NodeCacheEntry<string>("value");
 
-        var rejected = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cacheA.SetEntryAsync("op-1", "c", "k", entry, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var rejected = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cacheA.SetEntryAsync("op-1", "c", "k", entry, null, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(rejected.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
         _ = await Assert.That(Volatile.Read(ref setEntryCalls)).IsEqualTo(0);
 
-        await cacheB.SetEntryAsync("op-2", "c", "k", entry, cancellationToken);
+        await cacheB.SetEntryAsync("op-2", "c", "k", entry, null, cancellationToken);
         _ = await Assert.That(Volatile.Read(ref setEntryCalls)).IsEqualTo(1);
     }
 
@@ -136,14 +136,14 @@ public sealed class BackpressureCacheDecoratorTests : DisposableServerUnitTestBa
             var clients = IBackpressureClientIdResolver.Mock(MockBehavior.Strict);
             var cache = new BackpressureCacheDecorator<string>(inner.Object, gate, clients.Object);
 
-            using (InboundAdmissionScope.Enter(gate))
-            {
-                await cache.SetEntryAsync("op-1", "c", "k", entry, cancellationToken);
-                var read = await cache.GetValueAsync("c", "k", cancellationToken);
-                _ = await Assert.That(read.Value).IsEqualTo("value");
-                _ = await Assert.That(gate.InFlight).IsEqualTo(1);
-                _ = await Assert.That(gate.QueueDepth).IsEqualTo(0);
-            }
+            var context = ICacheRequestContext.Mock(MockBehavior.Strict);
+            _ = context.IsAdmitted(gate).Returns(true);
+            var request = context.Object;
+            await cache.SetEntryAsync("op-1", "c", "k", entry, request, cancellationToken);
+            var read = await cache.GetValueAsync("c", "k", request, cancellationToken);
+            _ = await Assert.That(read.Value).IsEqualTo("value");
+            _ = await Assert.That(gate.InFlight).IsEqualTo(1);
+            _ = await Assert.That(gate.QueueDepth).IsEqualTo(0);
 
             inner.GetValueAsync("c", "k", cancellationToken).WasCalled(Times.Once);
             inner.SetEntryAsync("op-1", "c", "k", entry, cancellationToken).WasCalled(Times.Once);
