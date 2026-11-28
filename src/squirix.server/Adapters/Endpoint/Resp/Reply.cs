@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Buffers.Text;
 using System.IO;
 using System.Threading;
@@ -20,9 +21,20 @@ internal static class Reply
 
     internal static async ValueTask WriteBulkAsync(Stream stream, ReadOnlyMemory<byte> value, CancellationToken cancellationToken)
     {
-        await stream.WriteAsync(FormatNumber("$"u8[0], value.Length), cancellationToken).ConfigureAwait(false);
-        await stream.WriteAsync(value, cancellationToken).ConfigureAwait(false);
-        await stream.WriteAsync(Terminator, cancellationToken).ConfigureAwait(false);
+        var header = FormatNumber("$"u8[0], value.Length);
+        var length = checked(header.Length + value.Length + Terminator.Length);
+        var buffer = ArrayPool<byte>.Shared.Rent(length);
+        try
+        {
+            header.CopyTo(buffer.AsMemory());
+            value.CopyTo(buffer.AsMemory(header.Length));
+            Terminator.CopyTo(buffer.AsMemory(header.Length + value.Length));
+            await stream.WriteAsync(buffer.AsMemory(0, length), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 
     private static ReadOnlyMemory<byte> FormatNumber(byte prefix, long value)

@@ -104,6 +104,58 @@ public sealed class RespCodecTests
         _ = await Assert.That(stream.ToArray().AsSpan().SequenceEqual(expected)).IsTrue();
     }
 
+    /// <summary>Writes each bulk frame in one operation and retains it until that operation completes.</summary>
+    /// <param name="length">The payload length.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(0)]
+    [Arguments(2)]
+    [Arguments(1048576)]
+    public async Task WritesBulkFrameInOnePendingWrite(int length, CancellationToken cancellationToken)
+    {
+        var payload = new byte[length];
+        for (var i = 0; i < payload.Length; i++)
+            payload[i] = byte.CreateChecked(i % 256);
+
+        await using var stream = new PendingWriteStream();
+        var write = Reply.WriteBulkAsync(stream, payload, cancellationToken);
+        var header = System.Text.Encoding.ASCII.GetBytes($"${length}\r\n");
+        var expected = new byte[header.Length + length + 2];
+        header.CopyTo(expected, 0);
+        payload.CopyTo(expected, header.Length);
+        expected[^2] = 13;
+        expected[^1] = 10;
+
+        _ = await Assert.That(stream.WriteCount).IsEqualTo(1);
+        _ = await Assert.That(stream.Token).IsEqualTo(cancellationToken);
+        _ = await Assert.That(stream.Buffer.Span.SequenceEqual(expected)).IsTrue();
+        _ = await Assert.That(write.IsCompleted).IsFalse();
+        stream.Complete();
+        await write;
+        _ = await Assert.That(stream.WriteCount).IsEqualTo(1);
+    }
+
+    private sealed class PendingWriteStream : MemoryStream
+    {
+        private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal int WriteCount { get; private set; }
+
+        internal ReadOnlyMemory<byte> Buffer { get; private set; }
+
+        internal CancellationToken Token { get; private set; }
+
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            WriteCount++;
+            Buffer = buffer;
+            Token = cancellationToken;
+            return new ValueTask(_completion.Task);
+        }
+
+        internal void Complete() => _completion.SetResult();
+    }
+
     private sealed class FragmentedStream : MemoryStream
     {
         internal FragmentedStream(byte[] bytes)
