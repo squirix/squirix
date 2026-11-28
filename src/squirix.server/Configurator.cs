@@ -141,7 +141,7 @@ public static class Configurator
         if (loadDiscoveredSettings)
         {
             var path = ResolveSettingsPath(settingsPath);
-            options = path != null ? await LoadHostingSettingsAsync(path, cancellationToken).ConfigureAwait(false) : new SquirixServerOptions();
+            options = path != null ? await LoadHostingSettingsAsync(path, settingsPath == null, false, cancellationToken).ConfigureAwait(false) : new SquirixServerOptions();
         }
         else
         {
@@ -198,11 +198,8 @@ public static class Configurator
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The validated server options.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the file is missing, invalid, or fails validation.</exception>
-    public static async Task<SquirixServerOptions> LoadAsync(string settingsFilePath, CancellationToken cancellationToken = default)
-    {
-        var (success, options, error) = await LoadFromFileAsync(settingsFilePath, cancellationToken).ConfigureAwait(false);
-        return !success ? throw new InvalidOperationException(error) : ThrowHelper.Required(options, "Settings file did not produce cluster options.");
-    }
+    public static Task<SquirixServerOptions> LoadAsync(string settingsFilePath, CancellationToken cancellationToken = default) =>
+        LoadHostingSettingsAsync(settingsFilePath, false, false, cancellationToken);
 
     /// <summary>Loads settings from the discovered settings file or, when no settings file exists, creates ephemeral local defaults.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -233,7 +230,7 @@ public static class Configurator
     /// <param name="explicitPath">Optional explicit settings path.</param>
     /// <returns>The resolved path when found; otherwise <see langword="null" />.</returns>
     public static string? ResolveSettingsPath(string? explicitPath = null) => explicitPath == null
-        ? FileEx.FindFile(["Squirix.settings.json", "squirix.settings.json"])
+        ? SettingsJson.FindSettingsPath()
         : ResolveValidatedFilePath(explicitPath);
 
     /// <summary>Validates and canonicalizes an operator-supplied file path.</summary>
@@ -249,54 +246,8 @@ public static class Configurator
     /// A tuple where <c language="csharp">Success</c> is <see langword="true" /> when loading and validation succeed,
     /// <c language="csharp">Options</c> holds the validated options, and <c language="csharp">Error</c> holds failure text when applicable.
     /// </returns>
-    public static async Task<(bool Success, SquirixServerOptions? Options, string? Error)> LoadFromFileAsync(string path, CancellationToken cancellationToken = default)
-    {
-        string validatedPath;
-        try
-        {
-            validatedPath = FilePathValidator.ResolveValidatedFilePath(path);
-        }
-        catch (ArgumentException ex)
-        {
-            return (false, null, ex.Message);
-        }
-
-        if (!File.Exists(validatedPath))
-            return (false, null, $"Settings file does not exist: {validatedPath}");
-
-        try
-        {
-            var bytes = await File.ReadAllBytesAsync(validatedPath, cancellationToken).ConfigureAwait(false);
-            using var document = JsonDocument.Parse(bytes, JsonOptions);
-            var root = document.RootElement;
-            if (root.TryGetProperty("Squirix", out var squirix))
-                root = squirix;
-            if (!root.TryGetProperty("Cluster", out var cluster))
-                return (false, null, "Settings file must define Squirix.Cluster.");
-
-            var options = ThrowHelper.Required(
-                JsonSerializer.Deserialize(cluster.GetRawText(), SquirixServerHostingJsonContext.Default.SquirixServerOptions),
-                "Cannot deserialize Squirix.Cluster.");
-            options.SettingsFilePath = validatedPath;
-            options.Eviction = EvictionSettings.Read(root);
-            if (options.DataDirectory != null)
-                options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory);
-
-            return options.TryValidate(out var failures) ? (true, options, null) : (false, null, string.Join(Environment.NewLine, failures));
-        }
-        catch (ArgumentException ex)
-        {
-            return (false, null, ex.Message);
-        }
-        catch (JsonException ex)
-        {
-            return (false, null, ex.Message);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return (false, null, ex.Message);
-        }
-    }
+    public static Task<(bool Success, SquirixServerOptions? Options, string? Error)> LoadFromFileAsync(string path, CancellationToken cancellationToken = default) =>
+        LoadFromFileAsync(path, false, cancellationToken);
 
     /// <summary>Validates cluster and, when <paramref name="strict" /> is <see langword="true" />, optional settings sections.</summary>
     /// <param name="settingsFilePath">Path to the settings JSON file.</param>
@@ -325,18 +276,8 @@ public static class Configurator
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Validated server options.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the settings file cannot be loaded or fails validation.</exception>
-    internal static async Task<SquirixServerOptions> LoadOrCreateDefaultAsync(string? discoveredPath, CancellationToken cancellationToken)
-    {
-        if (discoveredPath != null)
-            return await LoadHostingSettingsAsync(discoveredPath, cancellationToken).ConfigureAwait(false);
-
-        var port = NextFreePort();
-        return new SquirixServerOptions
-        {
-            NodeId = "node",
-            Uri = new Uri(InvariantDigitStrings.FormatHttpsOrigin("localhost", port)),
-        };
-    }
+    internal static Task<SquirixServerOptions> LoadOrCreateDefaultAsync(string? discoveredPath, CancellationToken cancellationToken) =>
+        LoadHostingSettingsAsync(discoveredPath, true, true, cancellationToken);
 
     /// <summary>Maps validated server options to internal cluster configuration.</summary>
     /// <param name="options">Validated server options.</param>
@@ -365,12 +306,89 @@ public static class Configurator
         };
     }
 
-    private static async Task<SquirixServerOptions> LoadHostingSettingsAsync(string path, CancellationToken cancellationToken)
+    private static async Task<(bool Success, SquirixServerOptions? Options, string? Error)> LoadFromFileAsync(
+        string path, bool allowMissingCluster, CancellationToken cancellationToken)
     {
-        var options = await LoadAsync(path, cancellationToken).ConfigureAwait(false);
-        var (_, metrics) = await PrometheusMetricsBootstrap.MergeFromSettingsFilePathAsync(path, new PrometheusMetricsEndpointOptions(), cancellationToken).ConfigureAwait(false);
-        options.PrometheusMetricsEnabled = metrics.Enabled;
-        options.PrometheusMetricsPath = metrics.Path;
+        string validatedPath;
+        try
+        {
+            validatedPath = FilePathValidator.ResolveValidatedFilePath(path);
+        }
+        catch (ArgumentException ex)
+        {
+            return (false, null, ex.Message);
+        }
+
+        if (!File.Exists(validatedPath))
+            return (false, null, $"Settings file does not exist: {validatedPath}");
+
+        try
+        {
+            var bytes = await File.ReadAllBytesAsync(validatedPath, cancellationToken).ConfigureAwait(false);
+            using var document = JsonDocument.Parse(bytes, JsonOptions);
+            var root = document.RootElement;
+            var squirix = root.TryGetProperty("Squirix", out var section) ? section : root;
+            if (!squirix.TryGetProperty("Cluster", out var cluster))
+                return allowMissingCluster ? (true, null, null) : (false, null, "Settings file must define Squirix.Cluster.");
+
+            var options = ThrowHelper.Required(
+                JsonSerializer.Deserialize(cluster.GetRawText(), SquirixServerHostingJsonContext.Default.SquirixServerOptions),
+                "Cannot deserialize Squirix.Cluster.");
+            options.SettingsFilePath = validatedPath;
+            options.Eviction = EvictionSettings.Read(squirix);
+            if (options.DataDirectory != null)
+                options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory);
+
+            return options.TryValidate(out var failures) ? (true, options, null) : (false, null, string.Join(Environment.NewLine, failures));
+        }
+        catch (ArgumentException ex)
+        {
+            return (false, null, ex.Message);
+        }
+        catch (JsonException ex)
+        {
+            return (false, null, ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return (false, null, ex.Message);
+        }
+    }
+
+    private static async Task<SquirixServerOptions> LoadHostingSettingsAsync(
+        string? path, bool allowMissingCluster, bool useEphemeralPort, CancellationToken cancellationToken)
+    {
+        SquirixServerOptions? configured = null;
+        if (path != null)
+        {
+            var (success, loaded, error) = await LoadFromFileAsync(path, allowMissingCluster, cancellationToken).ConfigureAwait(false);
+            if (!success)
+                throw new InvalidOperationException(error);
+
+            configured = loaded;
+        }
+
+        var options = configured ?? new SquirixServerOptions();
+        if (configured == null && useEphemeralPort)
+        {
+            options.NodeId = "node";
+            options.Uri = new Uri(InvariantDigitStrings.FormatHttpsOrigin("localhost", NextFreePort()));
+        }
+
+        if (path != null)
+        {
+            options.SettingsFilePath ??= path;
+            if (configured == null)
+            {
+                options.Eviction = await SettingsJson.WithSquirixRootAsync(
+                    path, options.Eviction, static (root, _) => EvictionSettings.Read(root), cancellationToken).ConfigureAwait(false);
+            }
+
+            var (_, metrics) = await PrometheusMetricsBootstrap.MergeFromSettingsFilePathAsync(path, new PrometheusMetricsEndpointOptions(), cancellationToken).ConfigureAwait(false);
+            options.PrometheusMetricsEnabled = metrics.Enabled;
+            options.PrometheusMetricsPath = metrics.Path;
+        }
+
         return options;
     }
 

@@ -18,12 +18,12 @@ node logs rather than deleting files to free space. See [Journal disk quota](ope
 3. Use the matching node configuration when inspecting that copy. Do not start a copied RF>1 directory as a duplicate
    node or restore it into a live cluster.
 
-For example, if the stopped node's copied data is in `data-copy` and its settings are in `Squirix.settings.json` in the
+For example, if the stopped node's copied data is in `data-copy` and its settings are in `appsettings.json` in the
 current directory, run:
 
 ```bash
-squirix-server validate-config --settings Squirix.settings.json --strict
-squirix-server doctor --settings Squirix.settings.json --persist --data-dir data-copy
+squirix-server validate-config --settings appsettings.json --strict
+squirix-server doctor --settings appsettings.json --persist --data-dir data-copy
 ```
 
 Check that `data-copy` is the intended existing copy before running the second command. `doctor` can create a missing

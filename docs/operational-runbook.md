@@ -25,7 +25,7 @@ When a node behaves unexpectedly:
 Before changing cluster topology in containers, validate settings:
 
 ```bash
-squirix-server validate-config --settings Squirix.settings.json --strict
+squirix-server validate-config --settings appsettings.json --strict
 ```
 
 See [containerization.md](containerization.md) for Docker Compose examples (`Cluster.Uri` must match the local peer

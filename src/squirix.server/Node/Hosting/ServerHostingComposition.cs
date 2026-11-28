@@ -173,6 +173,7 @@ internal static class ServerHostingComposition
             cluster,
             new ValidatedOptionsArgs
             {
+                SettingsFilePath = args.SettingsFilePath,
                 BackpressureOptions = args.BackpressureOptions,
                 PersistenceOptions = persistence,
                 MemoryPressureOptions = pressure,

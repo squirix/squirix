@@ -8,7 +8,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
 
-/// <summary>Loads unresolved memory pressure settings from <c language="csharp">Squirix.settings.json</c> and environment variables.</summary>
+/// <summary>Loads unresolved memory pressure settings from <c language="csharp">appsettings.json</c> and environment variables.</summary>
 internal static class PressureBootstrap
 {
     /// <summary>Loads memory pressure settings using the same settings file discovery as cluster bootstrap, then applies environment overrides.</summary>

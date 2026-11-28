@@ -65,5 +65,5 @@ Read `server.ManagementUri` after startup to get the bound origin for health and
 
 To supply settings from a specific file, use `Configurator.LoadAsync(path, cancellationToken)` to create the options
 and pass them to `SquirixServer.StartAsync(options, cancellationToken)`. The parameterless startup overload discovers
-`Squirix.settings.json` and chooses a free client port if no file is found. A discovered file that fails validation
+`appsettings.json` and chooses a free client port if the file or its `Squirix:Cluster` section is absent. A discovered file that fails validation
 causes startup to fail. Configure a known origin when a client needs to connect to an embedded node.

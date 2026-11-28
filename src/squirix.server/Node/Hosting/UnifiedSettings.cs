@@ -12,18 +12,19 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Node.Hosting;
 
 /// <summary>
-/// Loads unified settings from "Squirix.settings.json" (if present).
+/// Loads unified settings from "appsettings.json" (if present).
 /// Looks first in CurrentDirectory, then in AppContext.BaseDirectory.
 /// </summary>
 internal static class UnifiedSettings
 {
     /// <summary>Loads snapshot trigger options from the discovered settings file, if present.</summary>
+    /// <param name="settingsFilePath">The selected settings file, when available.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The snapshot trigger options.</returns>
-    internal static async Task<TriggerOptions> LoadSnapshotOptionsAsync(CancellationToken cancellationToken)
+    internal static async Task<TriggerOptions> LoadSnapshotOptionsAsync(string? settingsFilePath, CancellationToken cancellationToken)
     {
         var baseline = new TriggerOptions();
-        var path = SettingsJson.FindSettingsPath();
+        var path = settingsFilePath ?? SettingsJson.FindSettingsPath();
         if (path == null)
             return baseline;
 

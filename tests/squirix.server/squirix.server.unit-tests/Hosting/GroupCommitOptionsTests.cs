@@ -314,7 +314,7 @@ public sealed class GroupCommitOptionsTests : IsolatedStorageTestBase
 
     private async Task<string> WriteSettingsAsync(string json, CancellationToken cancellationToken)
     {
-        var path = Path.Join(Dir, "Squirix.settings.json");
+        var path = Path.Join(Dir, "appsettings.json");
         await File.WriteAllTextAsync(path, json, cancellationToken);
         return path;
     }

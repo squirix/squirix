@@ -25,7 +25,7 @@ services:
       - "5001:5000" # Binary cache over TLS
       - "127.0.0.1:5201:5002" # Management HTTPS
     volumes:
-      - ./node-a/Squirix.settings.json:/app/Squirix.settings.json:ro
+      - ./node-a/appsettings.json:/app/appsettings.json:ro
       - nodea-data:/data
     networks:
       squirix-net:
@@ -54,7 +54,7 @@ services:
       - "5002:5000"
       - "127.0.0.1:5202:5002"
     volumes:
-      - ./node-b/Squirix.settings.json:/app/Squirix.settings.json:ro
+      - ./node-b/appsettings.json:/app/appsettings.json:ro
       - nodeb-data:/data
     networks:
       squirix-net:
@@ -83,7 +83,7 @@ services:
       - "5003:5000"
       - "127.0.0.1:5203:5002"
     volumes:
-      - ./node-c/Squirix.settings.json:/app/Squirix.settings.json:ro
+      - ./node-c/appsettings.json:/app/appsettings.json:ro
       - nodec-data:/data
     networks:
       squirix-net:

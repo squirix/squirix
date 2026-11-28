@@ -202,7 +202,7 @@ openssl pkcs12 -export -out node-b.pfx -inkey node-b.key -in node-b.crt \
 ### Configure two local nodes
 
 Assume primary URLs `https://localhost:5001` (node A) and `https://localhost:5002` (node B), each with `Peers[]`
-listing both nodes in `Squirix.settings.json`. Use internal port **5101** on both nodes (must differ from primary
+listing both nodes in `appsettings.json`. Use internal port **5101** on both nodes (must differ from primary
 ports).
 
 These environment blocks select certificates only; they are not a complete two-process launch recipe. Two processes

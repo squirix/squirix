@@ -84,11 +84,11 @@ internal static class Program
 
         private static async Task<int> InitializeAsync(SquirixServerCommand command)
         {
-            var path = Configurator.ResolveSettingsPath(command.SettingsPath ?? "Squirix.settings.json")!;
+            var path = Configurator.ResolveSettingsPath(command.SettingsPath ?? "appsettings.json")!;
             if (File.Exists(path))
                 throw new InvalidOperationException($"Settings file already exists: {path}");
 
-            File.Copy(Path.Join(AppContext.BaseDirectory, "Squirix.settings.default.json"), path);
+            File.Copy(Path.Join(AppContext.BaseDirectory, "appsettings.example.json"), path);
             _ = await LoadSettingsAsync(path, CancellationToken.None).ConfigureAwait(false);
             await WriteConsoleLineAsync(Console.Out, $"[Squirix.Server] Created settings: {path}").ConfigureAwait(false);
             return 0;

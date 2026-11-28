@@ -10,7 +10,7 @@ exercise the packed `squirix`, `squirix.server`, and `squirix.extensions.caching
 
 - The .NET SDK selected by [global.json](../../global.json), including when building this sample from the repository.
 - A trusted .NET SDK development HTTPS certificate: `dotnet dev-certs https --trust`.
-- A free local port 51907, as configured in [Squirix.settings.json](Squirix.settings.json).
+- A free local port 51907, as configured in [appsettings.json](appsettings.json).
 
 ## Build the packages
 

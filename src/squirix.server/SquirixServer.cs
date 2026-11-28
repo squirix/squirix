@@ -49,7 +49,10 @@ public sealed class SquirixServer : IAsyncDisposable
 
         var services = new NodeServices();
         var environment = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? "Production";
-        var configuration = new ServerLoggingSettings(Path.Join(AppContext.BaseDirectory, "appsettings.defaults.json"), Directory.GetCurrentDirectory(), environment);
+        var settingsFilePath = options.SettingsFilePath;
+        var settingsDirectory = settingsFilePath == null ? Directory.GetCurrentDirectory() : Path.GetDirectoryName(settingsFilePath)!;
+        var configuration = new ServerLoggingSettings(
+            Path.Join(AppContext.BaseDirectory, "appsettings.defaults.json"), settingsDirectory, environment, settingsFilePath);
         try
         {
 #pragma warning disable RS0030 // The standalone composition root supplies the console writer to its injected logging factory.

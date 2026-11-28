@@ -150,18 +150,34 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
-    /// <summary>A discovered settings file without a cluster section makes the default loader throw.</summary>
+    /// <summary>A shared application settings file can contain logging and client settings only.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task LoadOrCreateThrowsWithoutClusterSection(CancellationToken cancellationToken)
+    public async Task ClientOnlyConfigUsesServerDefaults(CancellationToken cancellationToken)
     {
-        var path = PathKit.Combine(Dir, "no-cluster.json");
-        await File.WriteAllTextAsync(path, """{"Squirix":{"MemoryPressure":{}}}""", cancellationToken);
+        var path = PathKit.Combine(Dir, "appsettings.json");
+        await File.WriteAllTextAsync(path, """{"Logging":{},"Squirix":{"Client":{"Endpoints":["https://localhost:5001"]}}}""", cancellationToken);
 
-        var operation = Configurator.LoadOrCreateDefaultAsync(path, cancellationToken);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var options = await Configurator.LoadOrCreateDefaultAsync(path, cancellationToken);
 
-        _ = await Assert.That(ex.Message).Contains("Squirix.Cluster", StringComparison.Ordinal);
+        _ = await Assert.That(options.NodeId).IsEqualTo("node");
+        _ = await Assert.That(options.SettingsFilePath).IsEqualTo(path);
+    }
+
+    /// <summary>Renaming a settings file preserves a cluster configured at the root.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DiscoveryPreservesRootCluster(CancellationToken cancellationToken)
+    {
+        var path = PathKit.Combine(Dir, "appsettings.json");
+        await File.WriteAllTextAsync(
+            path, """{"Cluster":{"NodeId":"renamed","Uri":"https://localhost:6001","PersistenceEnabled":true}}""", cancellationToken);
+
+        var options = await Configurator.LoadOrCreateDefaultAsync(path, cancellationToken);
+
+        _ = await Assert.That(options.NodeId).IsEqualTo("renamed");
+        _ = await Assert.That(options.Uri.Port).IsEqualTo(6001);
+        _ = await Assert.That(options.PersistenceEnabled).IsTrue();
     }
 
     /// <summary>Without a settings file the default loader creates ephemeral local options.</summary>
@@ -191,7 +207,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
     {
         const string json =
             """{"Squirix":{"Cluster":{"ClusterId":"c1","NodeId":"node-a","Uri":"https://localhost:5001","VirtualNodes":128,"Peers":[{"NodeId":"node-a","Uri":"https://localhost:5001"}]}}}""";
-        var path = PathKit.Combine(Dir, "Squirix.settings.json");
+        var path = PathKit.Combine(Dir, "appsettings.json");
         await File.WriteAllTextAsync(path, json, cancellationToken);
         var options = await Configurator.LoadAsync(path, cancellationToken);
         _ = await Assert.That(options.NodeId).IsEqualTo("node-a");
@@ -203,7 +219,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
     [Test]
     public async Task LoadFromFileRejectsTraversalPath(CancellationToken cancellationToken)
     {
-        var (success, _, error) = await Configurator.LoadFromFileAsync("../Squirix.settings.json", cancellationToken);
+        var (success, _, error) = await Configurator.LoadFromFileAsync("../appsettings.json", cancellationToken);
         _ = await Assert.That(success).IsFalse();
         _ = await Assert.That(error).Contains("'.' or '..'", StringComparison.Ordinal);
     }
@@ -211,7 +227,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
     /// <summary>The public file path helper rejects traversal segments.</summary>
     [Test]
     public void ResolveValidatedFilePathRejectsTraversal() =>
-        _ = NodeExceptionAssert.For<ArgumentException>().Throws("../Squirix.settings.json", static value => Configurator.ResolveValidatedFilePath(value));
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws("../appsettings.json", static value => Configurator.ResolveValidatedFilePath(value));
 
     /// <summary>ApplyRuntimeDefaults canonicalizes an existing data directory.</summary>
     [Test]
@@ -227,7 +243,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
     [Test]
     public async Task SettingsPathCanonicalizesExplicitInput(CancellationToken cancellationToken)
     {
-        var path = Path.Join(Dir, "Squirix.settings.json");
+        var path = Path.Join(Dir, "appsettings.json");
         await File.WriteAllTextAsync(path, "{}", cancellationToken);
         var resolved = Configurator.ResolveSettingsPath(path);
         _ = await Assert.That(resolved).IsEqualTo(Path.GetFullPath(path));

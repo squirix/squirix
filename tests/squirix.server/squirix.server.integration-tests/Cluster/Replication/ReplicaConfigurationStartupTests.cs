@@ -135,7 +135,7 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     public async Task SettingsRoundTripFailoverSwitches(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-failover-settings-roundtrip");
-        var path = Path.Join(dir, "Squirix.settings.json");
+        var path = Path.Join(dir, "appsettings.json");
         const string json =
             "{\"Squirix\":{\"Cluster\":{\"ClusterId\":\"c1\",\"NodeId\":\"n1\",\"Uri\":\"https://localhost:6001\",\"ReplicaCount\":3,\"PersistenceEnabled\":true," +
             "\"AutomaticFailoverEnabled\":true,\"QuorumReadsEnabled\":true," +
@@ -157,7 +157,7 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     public async Task SettingsRoundTripReplicaCountGeneration(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-rf-settings-roundtrip");
-        var path = Path.Join(dir, "Squirix.settings.json");
+        var path = Path.Join(dir, "appsettings.json");
         const string json =
             "{\"Squirix\":{\"Cluster\":{\"ClusterId\":\"c1\",\"NodeId\":\"n1\",\"Uri\":\"https://localhost:6001\",\"ReplicaCount\":1,\"ConfigurationGeneration\":7,\"Peers\":[{\"NodeId\":\"n1\",\"Uri\":\"https://localhost:6001\"},{\"NodeId\":\"n2\",\"Uri\":\"https://localhost:6002\"},{\"NodeId\":\"n3\",\"Uri\":\"https://localhost:6003\"}]}}}";
         await File.WriteAllTextAsync(path, json, cancellationToken);

@@ -5,21 +5,23 @@ examples of configuration errors that stop startup.
 
 ## File discovery
 
-The bootstrap file name used by the current container/bootstrap flow is `Squirix.settings.json` or
-`squirix.settings.json`.
+Squirix discovers `appsettings.json` when starting a node or connecting the SDK with file-based configuration.
 
 Search order:
 
 - Current working directory
 - `AppContext.BaseDirectory`
 
-In Docker, mount settings read-only (for example `docker/node-a/Squirix.settings.json` → `/app/Squirix.settings.json`).
+In Docker, mount settings read-only (for example `docker/node-a/appsettings.json` → `/app/appsettings.json`).
 See [containerization.md](containerization.md) for dev and release image layouts.
 
 The standalone CLI and `SquirixServer.StartAsync()` load `Squirix:Cluster` through `Configurator`.
 The host also loads `Squirix:PrometheusMetrics` from the selected settings file. An explicit `--settings custom.json`
-selects those sections, `Squirix:CacheEviction`, and `Squirix:MemoryPressure` from that file. `Snapshot` uses standard file discovery independently.
-Keep all sections in `Squirix.settings.json` in the working directory to apply them together.
+selects the server settings from that file, including eviction, memory pressure, and snapshots.
+Keep all sections in `appsettings.json` in the working directory to apply them together.
+When upgrading an existing deployment, rename `Squirix.settings.json` to `appsettings.json` or move its `Squirix` object
+into your existing `appsettings.json`. Update Docker mounts and CLI arguments that name the old file.
+`appsettings.{Environment}.json` overrides logging settings. Node and SDK settings come from the selected base JSON file.
 `validate-config --settings custom.json --strict` validates optional sections in the named file.
 
 Relative settings and data paths are resolved against the process working directory, not the settings file directory.
@@ -36,7 +38,25 @@ For example, set it to `Information` to also log informational messages.
 
 ## Remote client (`SquirixClientOptions`)
 
-Configure the client when calling `SquirixClient.ConnectAsync`:
+Add client endpoints to the consuming application's `appsettings.json`:
+
+```json
+{
+  "Squirix": {
+    "Client": {
+      "Endpoints": ["https://cache-a.example.internal:5001", "https://cache-b.example.internal:5001"]
+    }
+  }
+}
+```
+
+```csharp
+await using var client = await SquirixClient.ConnectAsync();
+```
+
+The SDK reads this file when connecting. Keep it in the working directory or copy it to the application output.
+Use `ConnectFromSettingsAsync` to add a bearer token provider or serializer to the file-based configuration.
+To supply all connection settings in code, use the URI or options callback overload of `SquirixClient.ConnectAsync`.
 
 | Member                   | Purpose                                                                                                                                              |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -84,7 +104,7 @@ for credential refresh, transport compatibility and migration from per-RPC authe
 <!-- markdownlint-disable-next-line MD033 -->
 <a id="memory-pressure-squirixsettingsjson"></a>
 
-## Memory pressure (`Squirix.settings.json`)
+## Memory pressure (`appsettings.json`)
 
 Cache memory accounting is disabled by default. Enable it with `squirix-server run --memory-accounting` or
 set `SquirixServerOptions.MemoryAccountingEnabled` before starting an embedded node. An explicit host option takes
@@ -389,11 +409,11 @@ When `WaitForRecovery` is `false`, replay runs in the background:
 Use non-blocking recovery only when load balancers honor `/health/ready` and callers tolerate delayed read availability
 during startup.
 
-## Node settings file (`Squirix.settings.json`)
+## Node settings file (`appsettings.json`)
 
 The following optional settings are available at startup.
 
-| Section | Loaded from `Squirix.settings.json`? | Notes |
+| Section | Loaded from `appsettings.json`? | Notes |
 | --- | --- | --- |
 | `CacheEviction` | Yes | Disabled by default. See [Cache eviction](#cache-eviction) for key-count and memory modes. |
 | `MemoryPressure` | Yes | Configures optional cache memory accounting and pressure limits |
@@ -404,14 +424,14 @@ The following optional settings are available at startup.
 | Journal group commit | Yes, as `Squirix:Cluster:Journal` | A property of `SquirixServerOptions`, see [Journal](#journal) |
 | Journal metrics exporter interval | No | Fixed at 5 seconds |
 
-`squirix-server validate-config --settings Squirix.settings.json --strict` validates optional `MemoryPressure`, `Snapshot`, and `PrometheusMetrics`
+`squirix-server validate-config --settings appsettings.json --strict` validates optional `MemoryPressure`, `Snapshot`, and `PrometheusMetrics`
 sections together with cluster settings. Validation checks `CacheEviction` in both standard and strict mode.
 
 ### Persistence (host defaults)
 
 When persistence is enabled (`UsePersistence()` / `--persist`), the node uses internal `PersistenceOptions` defaults.
 There is **no** `Squirix:Persistence` JSON merge in public hosting — putting a Persistence object in
-`Squirix.settings.json` has no effect. Data directory comes from `SquirixServerOptions.DataDirectory` / `--data-dir`
+`appsettings.json` has no effect. Data directory comes from `SquirixServerOptions.DataDirectory` / `--data-dir`
 (otherwise the host resolves a per-node default under local app data).
 
 | Field                         | Type   | Default in node host                                       | Validation                                                                                                                                 |
@@ -426,7 +446,7 @@ There is **no** `Squirix:Persistence` JSON merge in public hosting — putting a
 | `ReplicaLogCompactionEntries` | int    | `100000`                                                   | `> 0` (RF>1: entries in each served replica group log that trigger its compaction)                                                         |
 | `ReplicaLogRetentionMaxMb`    | int    | `1024`                                                     | `>= ReplicaLogCompactionMb` (RF>1: group log size of a led group past which followers not ready or behind stop holding it)                 |
 
-Additional host defaults (also not merged from `Squirix.settings.json`):
+Additional host defaults (also not merged from `appsettings.json`):
 
 - `JournalWriteBatch` — `16777216` (16 MiB); `> 0`; cap of the journal write-coalescing buffer, which starts small and grows on demand up to this cap (larger frames bypass coalescing)
 - `RetentionCleanupDegradedWrites` — `3`; `> 0`; consecutive retention-cleanup write failures before degraded readiness
@@ -625,7 +645,7 @@ never queued. Forwarded owner calls are never queued on the owner (see above). A
 
 When persistence and metrics collection are enabled, the journal segment count and size gauges are refreshed from disk
 every 5 seconds. The interval
-is fixed and not loaded from `Squirix.settings.json`.
+is fixed and not loaded from `appsettings.json`.
 
 <!-- markdownlint-disable-next-line MD033 -->
 <a id="prometheus-metrics-squirixsettingsjson"></a>
@@ -763,7 +783,7 @@ an issuer and audience; authority mode requires an audience. Token lifetime vali
   [security/jwt-signing-keys.md](security/jwt-signing-keys.md). Internode forwarding does not use JWT when mTLS is
   enforced.
 
-## Sample `Squirix.settings.json`
+## Sample `appsettings.json`
 
 ```json
 {

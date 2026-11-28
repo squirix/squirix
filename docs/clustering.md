@@ -5,7 +5,7 @@ owner node for the lifetime of a routing configuration.
 
 ## Static topology
 
-Peers are configured explicitly in `Squirix.settings.json` or `SquirixServerOptions`. There is no dynamic membership
+Peers are configured explicitly in `appsettings.json` or `SquirixServerOptions`. There is no dynamic membership
 or automatic rebalancing in v0.1.
 
 Example settings discovery and validation: [configuration.md](configuration.md).
@@ -202,9 +202,9 @@ container names and container port **5000** (`https://squirix-node-a:5000` in mo
 From the repository root, validate each sample node's settings file before starting the containers:
 
 ```bash
-squirix-server validate-config --settings docker/node-a/Squirix.settings.json --strict
-squirix-server validate-config --settings docker/node-b/Squirix.settings.json --strict
-squirix-server validate-config --settings docker/node-c/Squirix.settings.json --strict
+squirix-server validate-config --settings docker/node-a/appsettings.json --strict
+squirix-server validate-config --settings docker/node-b/appsettings.json --strict
+squirix-server validate-config --settings docker/node-c/appsettings.json --strict
 ```
 
 `Cluster.Uri` must match the local peer entry in each node's settings file. File validation does not check running

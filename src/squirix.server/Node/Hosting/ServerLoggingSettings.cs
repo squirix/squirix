@@ -21,13 +21,15 @@ internal sealed class ServerLoggingSettings : IDisposable
     private Dictionary<string, string?> _values;
     private int _disposed;
 
-    internal ServerLoggingSettings(string defaults, string directory, string environment)
+    internal ServerLoggingSettings(string defaults, string directory, string environment, string? settingsFilePath = null)
     {
         _defaults = defaults;
-        _application = Path.Join(directory, "appsettings.json");
+        _application = settingsFilePath ?? Path.Join(directory, "appsettings.json");
         _environment = Path.Join(directory, $"appsettings.{environment}.json");
         _values = [with(StringComparer.OrdinalIgnoreCase)];
-        _watcher = new FileSystemWatcher(directory, "appsettings*.json");
+        _watcher = new FileSystemWatcher(directory);
+        _watcher.Filters.Add(Path.GetFileName(_application));
+        _watcher.Filters.Add(Path.GetFileName(_environment));
         _reload = new Timer(_ => Reload(), null, Timeout.Infinite, Timeout.Infinite);
         try
         {

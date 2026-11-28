@@ -29,7 +29,7 @@ internal static class NodeOptionsRegistration
         AddValidatedInstance<PressureOptions, PressureOptionsValidator>(services, args.MemoryPressureOptions);
 
         if (args.PersistenceOptions != null)
-            await AddValidatedPersistenceOptionsAsync(services, args.PersistenceOptions, cancellationToken).ConfigureAwait(false);
+            await AddValidatedPersistenceOptionsAsync(services, args.PersistenceOptions, args.SettingsFilePath, cancellationToken).ConfigureAwait(false);
 
         var prometheusMetrics = args.PrometheusMetricsOptions ?? await PrometheusMetricsBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
         AddValidatedInstance<PrometheusMetricsEndpointOptions, PrometheusEndpointOptionsValidator>(services, prometheusMetrics);
@@ -64,10 +64,11 @@ internal static class NodeOptionsRegistration
     private static async Task AddValidatedPersistenceOptionsAsync(
         NodeServices services,
         PersistenceOptions persistence,
+        string? settingsFilePath,
         CancellationToken cancellationToken)
     {
         AddValidatedInstance<PersistenceOptions, PersistenceOptionsValidator>(services, persistence);
-        var snapshot = await UnifiedSettings.LoadSnapshotOptionsAsync(cancellationToken).ConfigureAwait(false);
+        var snapshot = await UnifiedSettings.LoadSnapshotOptionsAsync(settingsFilePath, cancellationToken).ConfigureAwait(false);
         AddValidatedInstance<TriggerOptions, TriggerOptionsValidator>(services, snapshot);
     }
 

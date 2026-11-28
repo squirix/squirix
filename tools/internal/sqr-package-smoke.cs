@@ -91,7 +91,7 @@ if (!HasCachingPackage(packageDir))
 }
 
 var sampleDir = Path.Join(repoRoot, "samples", "external-package-smoke");
-var settingsPath = Path.Join(sampleDir, "Squirix.settings.json");
+var settingsPath = Path.Join(sampleDir, "appsettings.json");
 var hadSettings = File.Exists(settingsPath);
 var settingsBackup = hadSettings ? await File.ReadAllBytesAsync(settingsPath, CancellationToken.None).ConfigureAwait(false) : null;
 
@@ -149,6 +149,7 @@ static string BuildSettingsJson(string uri)
         ["Squirix"] = new JsonObject
         {
             ["Cluster"] = cluster,
+            ["Client"] = new JsonObject { ["Endpoints"] = new JsonArray(JsonValue.Create(uri)) },
         },
     };
 
