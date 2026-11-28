@@ -2,25 +2,15 @@
   "runner": "ubuntu-latest",
   "tolerance": 0.05,
   "bytesPerOperation": {
-    "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 3217,
-    "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 3222,
-    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 3787,
-    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 5525,
-    "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 4674,
-    "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 4675,
-    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 4676,
-    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 6188
+    "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 1221,
+    "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 1372,
+    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 1539,
+    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 3518,
+    "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 2450,
+    "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 2754,
+    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 2438,
+    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 4430
   },
   "release": "develop",
-  "measurement": "Rounded arithmetic mean of three independent successful Allocation Guard jobs on Ubuntu / .NET 10 at the same native-server PR commit; limits checked against each source run.",
-  "sourceRuns": [
-    "https://github.com/squirix/squirix/actions/runs/44727857333",
-    "https://github.com/squirix/squirix/actions/runs/44733966752",
-    "https://github.com/squirix/squirix/actions/runs/44735209165"
-  ],
-  "sourceCommits": [
-    "44191189aa86d48ea4038b73e7e41a3f09ff9a95",
-    "44191189aa86d48ea4038b73e7e41a3f09ff9a95",
-    "44191189aa86d48ea4038b73e7e41a3f09ff9a95"
-  ]
+  "measurement": "Rounded mean of four successful Allocation Guard runs on Ubuntu / .NET 10. Where a measured value would exceed the mean by more than 5%, the baseline uses the smallest integer that covers that value with the existing tolerance."
 }

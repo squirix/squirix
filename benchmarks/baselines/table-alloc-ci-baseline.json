@@ -2,11 +2,11 @@
   "title": "Physical cache table allocation guard",
   "tolerance": 0,
   "bytesPerOperation": {
-    "PhysicalCacheTableBenchmarks.InsertThroughGrowth": 114,
-    "PhysicalCacheTableBenchmarks.RemoveAndRefill": 97,
+    "PhysicalCacheTableBenchmarks.InsertThroughGrowth": 54,
+    "PhysicalCacheTableBenchmarks.RemoveAndRefill": 61,
     "PhysicalCacheTableBenchmarks.ReplaceOneAtATime": 0,
-    "PhysicalCacheTableBenchmarks.OverwriteDuringGrowth": 2,
-    "PhysicalCacheTableBenchmarks.OverwriteAfterGrowth": 2
+    "PhysicalCacheTableBenchmarks.OverwriteDuringGrowth": 1,
+    "PhysicalCacheTableBenchmarks.OverwriteAfterGrowth": 1
   },
-  "measurement": "Three local Ubuntu WSL2 x64 runs on .NET 10 measured 113 B/insert, 95 B/pair for refill after emptying the cache, 0 B/pair for immediate replacement, and 1 B/overwrite. The nonzero ceilings include rounding and in-process harness overhead."
+  "measurement": "Per-benchmark maximum of four successful Allocation Guard runs on Ubuntu / .NET 10 with a 0% tolerance."
 }
