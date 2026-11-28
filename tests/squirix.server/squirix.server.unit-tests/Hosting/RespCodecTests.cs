@@ -129,6 +129,7 @@ public sealed class RespCodecTests
         _ = await Assert.That(stream.WriteCount).IsEqualTo(1);
         _ = await Assert.That(stream.Token).IsEqualTo(cancellationToken);
         _ = await Assert.That(stream.Buffer.Span.SequenceEqual(expected)).IsTrue();
+        _ = await Assert.That(write.IsCompleted).IsFalse();
         stream.Complete();
         await write;
         _ = await Assert.That(stream.WriteCount).IsEqualTo(1);
