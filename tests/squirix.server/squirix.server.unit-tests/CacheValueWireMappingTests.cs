@@ -42,6 +42,33 @@ public sealed class CacheValueWireMappingTests : ServerUnitTestBase
         _ = await Assert.That(new NodeCacheEntry<double> { Value = 0.0, Version = 1 }.MapToWire().Value!.KindCase).IsEqualTo(CacheValue.KindOneofCase.DoubleValue);
     }
 
+    /// <summary>Storage can share an owned payload without consuming the request value.</summary>
+    [Test]
+    public async Task OwnedBinaryMappingKeepsPayloadAvailable()
+    {
+        byte[] bytes = [1, 255, 2];
+        var wire = CacheValue.FromOwnedBinary(bytes);
+
+        var stored = ServerWireMapping.MapCacheValue<StoredValue>(wire);
+
+        _ = await Assert.That(stored.Memory.Span.Overlaps(bytes, out var offset)).IsTrue();
+        _ = await Assert.That(offset).IsEqualTo(0);
+        _ = await Assert.That(wire.BinaryValue.Span.SequenceEqual(bytes)).IsTrue();
+    }
+
+    /// <summary>A borrowed slice is copied before storage so it can be reused by the producer.</summary>
+    [Test]
+    public async Task BorrowedBinaryMappingCopiesOnlyTheSlice()
+    {
+        byte[] input = [255, 1, 0, 2, 254];
+        var wire = new CacheValue { BinaryValue = input.AsMemory(1, 3) };
+
+        var stored = ServerWireMapping.MapCacheValue<StoredValue>(wire);
+        input.AsSpan().Clear();
+
+        _ = await Assert.That(stored.Memory.Span.SequenceEqual(new byte[] { 1, 0, 2 })).IsTrue();
+    }
+
     /// <summary>A stored JSON value goes to the wire as the very bytes it holds, not as a copy.</summary>
     [Test]
     public async Task StoredJsonBytesAreSharedWithTheWire()

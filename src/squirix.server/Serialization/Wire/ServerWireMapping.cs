@@ -120,7 +120,7 @@ internal static class ServerWireMapping
         CacheValue.KindOneofCase.Int64Value => StoredValue.FromInteger(value.Int64Value),
         CacheValue.KindOneofCase.DoubleValue => StoredValue.FromDouble(value.DoubleValue),
         CacheValue.KindOneofCase.StringValue => StoredValue.FromText(value.EncodedText ?? System.Text.Encoding.UTF8.GetBytes(value.StringValue)),
-        CacheValue.KindOneofCase.BinaryValue => StoredValue.FromBinary(value.BinaryValue.ToArray()),
+        CacheValue.KindOneofCase.BinaryValue => StoredValue.FromBinary(value.OwnedBinaryValue ?? value.BinaryValue.ToArray()),
         CacheValue.KindOneofCase.JsonUtf8 when JsonUtf8Validator.IsValid(value.JsonUtf8.Span) => StoredValue.FromJson(value.JsonUtf8),
         CacheValue.KindOneofCase.JsonUtf8 => throw new ServerCallException(FrameStatus.InvalidArgument, InvalidJsonDetail),
         _ => throw new ServerCallException(FrameStatus.InvalidArgument, MissingValueDetail),
