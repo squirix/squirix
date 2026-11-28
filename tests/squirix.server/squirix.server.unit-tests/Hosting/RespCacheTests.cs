@@ -72,6 +72,30 @@ public sealed class RespCacheTests
         await ExchangeAsync(stream, RespTestHost.Command("GET", "otherKind"), "-WRONGTYPE operation against a key holding the wrong kind of value\r\n", cancellationToken);
     }
 
+    /// <summary>Local RESP reads share the stored snapshot and retain it across an overwrite.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Timeout(30_000)]
+    public async Task ReadsShareSnapshotAcrossOverwrite(CancellationToken cancellationToken)
+    {
+        await using var host = await RespTestHost.StartAsync(cancellationToken);
+        var cache = host.Server.Services.GetRequiredService<RoutedCacheOperations<StoredValue>>();
+        var request = new GetValueAsyncRequest { CacheName = "resp", Key = "snapshot" };
+        byte[] original = [1, 0, 255, 13, 10];
+        byte[] updated = [2, 0, 13, 10];
+        _ = await WriteNativeAsync(cache, request.Key, new CacheValue { BinaryValue = original }, cancellationToken);
+
+        var first = await cache.Reads.GetRespValueAsync(request, cancellationToken);
+        var second = await cache.Reads.GetRespValueAsync(request, cancellationToken);
+        _ = await WriteNativeAsync(cache, request.Key, new CacheValue { BinaryValue = updated }, cancellationToken);
+        var replacement = await cache.Reads.GetRespValueAsync(request, cancellationToken);
+
+        _ = await Assert.That(first.Value!.BinaryValue.Span.Overlaps(second.Value!.BinaryValue.Span, out var offset)).IsTrue();
+        _ = await Assert.That(offset).IsEqualTo(0);
+        _ = await Assert.That(first.Value.BinaryValue.Span.SequenceEqual(original)).IsTrue();
+        _ = await Assert.That(replacement.Value!.BinaryValue.Span.SequenceEqual(updated)).IsTrue();
+    }
+
     /// <summary>Malformed UTF-8 and oversized keys cannot alias valid cache entries.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

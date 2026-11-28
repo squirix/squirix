@@ -160,8 +160,12 @@ internal sealed class RoutedCacheOperations<T>
                 // A hit without a value represents a type mismatch to the RESP adapter.
                 if (result.Value is not StoredValue { Kind: StoredValueKind.Binary } value)
                     return new GetValueAsyncResponse { Found = true };
-                if (value.Memory.Length > EntryLimits.MaxRespBulkBytes)
-                    throw new ServerCallException(FrameStatus.OutOfRange, "The cached binary value exceeds the response size limit.");
+                var bytes = value.Memory;
+
+                // The value owns its bytes or references an immutable packed-page slice.
+                return bytes.Length > EntryLimits.MaxRespBulkBytes
+                    ? throw new ServerCallException(FrameStatus.OutOfRange, "The cached binary value exceeds the response size limit.")
+                    : new GetValueAsyncResponse { Found = true, Value = new CacheValue { BinaryValue = bytes } };
             }
 
             var response = new GetValueAsyncResponse { Found = result.Found };
