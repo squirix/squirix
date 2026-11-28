@@ -56,7 +56,7 @@ public class CachePipelineDecoratorBenchmarks
     {
         var pipeline = ThrowHelper.Required(_pipeline, "Benchmark pipeline was not initialized.");
         for (var i = 0; i < OperationsPerInvoke; i++)
-            _ = await pipeline.GetEntryAsync(CacheName, Key, CancellationToken.None).ConfigureAwait(false);
+            _ = await pipeline.GetEntryAsync(CacheName, Key, null, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Runs GetOrAdd hits through the whole chain.</summary>
@@ -67,7 +67,7 @@ public class CachePipelineDecoratorBenchmarks
         var pipeline = ThrowHelper.Required(_hitPipeline, "Benchmark pipeline was not initialized.");
         var entry = new NodeCacheEntry<StoredValue>(ProposedText);
         for (var i = 0; i < OperationsPerInvoke; i++)
-            _ = await pipeline.AddOrGetAsync("op", CacheName, Key, entry, CancellationToken.None).ConfigureAwait(false);
+            _ = await pipeline.AddOrGetAsync("op", CacheName, Key, entry, null, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Creates the decorator chain over the suspending inner cache.</summary>
@@ -93,7 +93,7 @@ public class CachePipelineDecoratorBenchmarks
         var pipeline = ThrowHelper.Required(_pipeline, "Benchmark pipeline was not initialized.");
         var entry = new NodeCacheEntry<StoredValue>(ValueText);
         for (var i = 0; i < OperationsPerInvoke; i++)
-            await pipeline.SetEntryAsync("op", CacheName, Key, entry, CancellationToken.None).ConfigureAwait(false);
+            await pipeline.SetEntryAsync("op", CacheName, Key, entry, null, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Runs conditional adds that suspend in the inner cache and resume on another thread.</summary>
@@ -104,7 +104,7 @@ public class CachePipelineDecoratorBenchmarks
         var pipeline = ThrowHelper.Required(_pipeline, "Benchmark pipeline was not initialized.");
         var entry = new NodeCacheEntry<StoredValue>(ValueText);
         for (var i = 0; i < OperationsPerInvoke; i++)
-            _ = await pipeline.TryAddEntryAsync("op", CacheName, Key, entry, CancellationToken.None).ConfigureAwait(false);
+            _ = await pipeline.TryAddEntryAsync("op", CacheName, Key, entry, null, CancellationToken.None).ConfigureAwait(false);
     }
 
     private static TracingCacheDecorator<StoredValue> CreatePipeline(

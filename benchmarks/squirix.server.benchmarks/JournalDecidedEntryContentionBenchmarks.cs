@@ -53,7 +53,7 @@ public class JournalDecidedEntryContentionBenchmarks
         var entry = ThrowHelper.Required(_smallEntry, "Benchmark entry was not initialized.");
         var writes = new Task[_independentKeys.Length];
         for (var index = 0; index < writes.Length; index++)
-            writes[index] = decorator.SetEntryAsync("op", SmallCache, _independentKeys[index], entry, CancellationToken.None).AsTask();
+            writes[index] = decorator.SetEntryAsync("op", SmallCache, _independentKeys[index], entry, null, CancellationToken.None).AsTask();
 
         return Task.WhenAll(writes);
     }
@@ -66,7 +66,7 @@ public class JournalDecidedEntryContentionBenchmarks
     /// <summary>Runs small sets while a 1 MiB entry is touched in a loop on another key.</summary>
     /// <returns>A task that completes when all sets finish.</returns>
     [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
-    public Task SetWithTouch1MiBAsync() => SetWhileAsync(static (decorator, ct) => decorator.TouchAsync("op", LargeCache, "key", TimeSpan.FromMinutes(10), ct));
+    public Task SetWithTouch1MiBAsync() => SetWhileAsync(static (decorator, ct) => decorator.TouchAsync("op", LargeCache, "key", TimeSpan.FromMinutes(10), null, ct));
 
     /// <summary>Runs small sets while a 1 MiB entry is replaced by an update in a loop on another key.</summary>
     /// <returns>A task that completes when all sets finish.</returns>
@@ -74,7 +74,7 @@ public class JournalDecidedEntryContentionBenchmarks
     public Task SetWithUpdate1MiBAsync()
     {
         var value = _largeValue;
-        return SetWhileAsync((decorator, ct) => decorator.UpdateAsync("op", LargeCache, "key", value, ct));
+        return SetWhileAsync((decorator, ct) => decorator.UpdateAsync("op", LargeCache, "key", value, null, ct));
     }
 
     /// <summary>Creates the group-commit journal, the executor and the decorator over a stub cache.</summary>
@@ -128,7 +128,7 @@ public class JournalDecidedEntryContentionBenchmarks
         try
         {
             for (var i = 0; i < OperationsPerInvoke; i++)
-                await decorator.SetEntryAsync("op", SmallCache, "key", entry, CancellationToken.None).ConfigureAwait(false);
+                await decorator.SetEntryAsync("op", SmallCache, "key", entry, null, CancellationToken.None).ConfigureAwait(false);
         }
         finally
         {

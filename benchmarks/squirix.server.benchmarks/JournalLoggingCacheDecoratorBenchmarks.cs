@@ -55,7 +55,7 @@ public class JournalLoggingCacheDecoratorBenchmarks
         var decorator = ThrowHelper.Required(_decorator, "Benchmark decorator was not initialized.");
         var entry = ThrowHelper.Required(_entry, "Benchmark entry was not initialized.");
         for (var i = 0; i < OperationsPerInvoke; i++)
-            _ = await decorator.TryAddEntryAsync("op", "bench", "key", entry, CancellationToken.None).ConfigureAwait(false);
+            _ = await decorator.TryAddEntryAsync("op", "bench", "key", entry, null, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Runs conditional update mutations, whose precondition reads the cache before the journal append.</summary>
@@ -66,7 +66,7 @@ public class JournalLoggingCacheDecoratorBenchmarks
     {
         var decorator = ThrowHelper.Required(_decorator, "Benchmark decorator was not initialized.");
         for (var i = 0; i < OperationsPerInvoke; i++)
-            _ = await decorator.UpdateAsync("op", ExistingCache, "key", "w", CancellationToken.None).ConfigureAwait(false);
+            _ = await decorator.UpdateAsync("op", ExistingCache, "key", "w", null, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Runs expiration removals of a 128 B entry, each journaling a put of the whole persisted entry.</summary>
@@ -123,14 +123,14 @@ public class JournalLoggingCacheDecoratorBenchmarks
     {
         var decorator = ThrowHelper.Required(_decorator, "Benchmark decorator was not initialized.");
         for (var i = 0; i < operations; i++)
-            _ = await decorator.RemoveExpirationAsync("op", cacheName, "key", CancellationToken.None).ConfigureAwait(false);
+            _ = await decorator.RemoveExpirationAsync("op", cacheName, "key", null, CancellationToken.None).ConfigureAwait(false);
     }
 
     private async Task TouchAsync(string cacheName, int operations)
     {
         var decorator = ThrowHelper.Required(_decorator, "Benchmark decorator was not initialized.");
         for (var i = 0; i < operations; i++)
-            _ = await decorator.TouchAsync("op", cacheName, "key", TouchTtl, CancellationToken.None).ConfigureAwait(false);
+            _ = await decorator.TouchAsync("op", cacheName, "key", TouchTtl, null, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Cache stub: keys are absent except in the existing cache, which makes update preconditions pass; the sized caches hold entries with a deadline.</summary>

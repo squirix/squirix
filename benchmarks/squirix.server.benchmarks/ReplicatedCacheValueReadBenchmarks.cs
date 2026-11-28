@@ -84,7 +84,7 @@ public class ReplicatedCacheValueReadBenchmarks
     {
         var replicated = ThrowHelper.Required(_replicated, "Benchmark cache was not initialized.");
         for (var i = 0; i < OperationsPerInvoke; i++)
-            _ = await replicated.GetValueAsync(CacheName, Key, CancellationToken.None).ConfigureAwait(false);
+            _ = await replicated.GetValueAsync(CacheName, Key, null, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Opens the seeded group, commits the entry the reads hit, and seeds the copy with a first read.</summary>
@@ -106,7 +106,7 @@ public class ReplicatedCacheValueReadBenchmarks
         await _committers.For("n1").CommitSetAsync("op-1", CacheName, Key, new NodeCacheEntry<StoredValue>(StoredValue.FromText("v"), 1, null, TimeSpan.FromDays(1)), CancellationToken.None)
             .ConfigureAwait(false);
         _replicated = new ReplicatedCache(_local, _committers);
-        _ = await _replicated.GetValueAsync(CacheName, Key, CancellationToken.None).ConfigureAwait(false);
+        _ = await _replicated.GetValueAsync(CacheName, Key, null, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Creates the committer of group n1, which node n1 owns; the committers dispose it.</summary>
