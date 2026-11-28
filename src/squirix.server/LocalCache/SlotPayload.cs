@@ -37,11 +37,22 @@ internal readonly record struct SlotPayload<T>(CacheKey Key, T? Value)
         ? string.Equals(Key.Namespace, key.Namespace, StringComparison.Ordinal) && Matches(Value, key.Key)
         : Key.Equals(key);
 
+    internal bool Matches(in CacheLookupKey key) =>
+        string.Equals(Key.Namespace, key.CacheName, StringComparison.Ordinal) &&
+        (IsPacked, key.Utf8.IsEmpty) switch
+        {
+            (true, false) => KeyBytes(Value).SequenceEqual(key.Utf8),
+            (true, true) => Matches(Value, key.Chars),
+            (false, false) => MatchesUtf8(key.Utf8, Key.Key),
+            _ => Key.Key.AsSpan().SequenceEqual(key.Chars),
+        };
+
     private static string KeyText(T? raw) => CompactPageValue.KeyEncoding.GetString(KeyBytes(raw));
 
-    private static bool Matches(T? raw, string key)
+    private static bool Matches(T? raw, ReadOnlySpan<char> key) => MatchesUtf8(KeyBytes(raw), key);
+
+    private static bool MatchesUtf8(ReadOnlySpan<byte> saved, ReadOnlySpan<char> key)
     {
-        var saved = KeyBytes(raw);
         if (saved.Length == key.Length)
             return Ascii.Equals(saved, key);
         if (saved.Length < key.Length)

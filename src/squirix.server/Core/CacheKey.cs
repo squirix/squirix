@@ -12,7 +12,13 @@ internal readonly record struct CacheKey(string Namespace, string Key)
 {
     public override string ToString() => string.IsNullOrEmpty(Namespace) ? Key : Compose(Namespace, Key);
 
+    public override int GetHashCode() => Key == null ? NamespaceHash(Namespace) : LookupHash(Namespace, Key);
+
+    internal static int LookupHash(string cacheName, ReadOnlySpan<char> key) => unchecked(NamespaceHash(cacheName) + string.GetHashCode(key, StringComparison.Ordinal));
+
     internal static CacheKey Default(string key) => new(ServerCacheNames.DefaultNamespace, key);
+
+    private static int NamespaceHash(string? cacheName) => cacheName == null ? 0 : unchecked(StringComparer.Ordinal.GetHashCode(cacheName) * -1521134295);
 
     private static string Compose(string namespaceName, string key) => string.Create(
         namespaceName.Length + 1 + key.Length,

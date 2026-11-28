@@ -29,6 +29,8 @@ internal sealed class BinaryDispatch
         _observer = observer;
     }
 
+    internal bool HasSoleOwner => _operations.Reads.HasSoleOwner;
+
     internal ValueTask<BinaryResponse> ExecuteAsync(BinaryOperation operation, ReadOnlyMemory<byte> body, in Request context) => operation switch
     {
         BinaryOperation.SetEntry => InvokeAsync(CacheOperationNames.Set, SetEntryAsyncRequest.Parser, static (ops, request, token, call) => ops.Mutations.SetEntryAsync(request, token, call.Deadline, call), body, in context),
@@ -60,11 +62,10 @@ internal sealed class BinaryDispatch
         TRequest request,
         Func<RoutedCacheOperations<StoredValue>, TRequest, CancellationToken, BinaryRequestContext, ValueTask<TResponse>> method,
         Request context)
-        where TRequest : WireMessage
         where TResponse : WireMessage
     {
         var call = context.Call;
-        if (context.ValueBytes is { } bytes && CacheWritePayload.Length(request) != bytes)
+        if (context.ValueBytes is { } bytes && (request is not WireMessage message || CacheWritePayload.Length(message) != bytes))
             return new BinaryResponse(FrameStatus.InvalidArgument);
 
         // Preparation can overlap, but admission and execution must observe earlier mutations.
@@ -123,7 +124,6 @@ internal sealed class BinaryDispatch
         TRequest request,
         Func<RoutedCacheOperations<StoredValue>, TRequest, CancellationToken, BinaryRequestContext, ValueTask<TResponse>> method,
         Request context)
-        where TRequest : WireMessage
         where TResponse : WireMessage
     {
         var call = context.Call;
@@ -141,7 +141,6 @@ internal sealed class BinaryDispatch
         BinaryRequestContext call,
         TRequest request,
         Func<RoutedCacheOperations<StoredValue>, TRequest, CancellationToken, BinaryRequestContext, ValueTask<TResponse>> method)
-        where TRequest : WireMessage
         where TResponse : WireMessage
     {
         _admission.Grant(call);

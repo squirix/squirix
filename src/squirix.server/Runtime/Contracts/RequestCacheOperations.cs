@@ -17,6 +17,11 @@ internal static class RequestCacheOperations
             ? contextual.GetValueAsync(cacheName, key, request, cancellationToken)
             : cache.GetValueAsync(cacheName, key, cancellationToken);
 
+    internal static ValueTask<NodeCacheValueResult<T>> GetValueUtf8ForRequestAsync<T>(this ILogicalNamespacedCache<T> cache, string cacheName, in Utf8CacheKey key, CancellationToken cancellationToken, ICacheRequestContext? request = null) =>
+        cache is IRequestCache<T> contextual
+            ? contextual.GetValueUtf8Async(cacheName, key, request, cancellationToken)
+            : cache.GetValueUtf8Async(cacheName, key, cancellationToken);
+
     internal static ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineForRequestAsync<T>(this ILogicalNamespacedCache<T> cache, string cacheName, string key, CancellationToken cancellationToken, ICacheRequestContext? request = null) =>
         request != null && cache is IRequestCache<T> contextual
             ? contextual.GetValueWithDeadlineAsync(cacheName, key, request, cancellationToken)

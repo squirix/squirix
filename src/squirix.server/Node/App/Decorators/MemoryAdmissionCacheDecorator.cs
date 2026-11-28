@@ -110,6 +110,9 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : IRequestCache<T>
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken) =>
         _inner.GetValueForRequestAsync(cacheName, key, cancellationToken, request);
 
+    public ValueTask<NodeCacheValueResult<T>> GetValueUtf8Async(string cacheName, Utf8CacheKey key, ICacheRequestContext? request, CancellationToken cancellationToken) =>
+        _inner.GetValueUtf8ForRequestAsync(cacheName, in key, cancellationToken, request);
+
     public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken) =>
         _inner.RemoveForRequestAsync(operationId, cacheName, key, cancellationToken, request);
 

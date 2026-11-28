@@ -29,6 +29,11 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         ValueTask.FromResult(_read.GetValue(Key(cacheName, key), cancellationToken));
 
+    public ValueTask<NodeCacheValueResult<T>> GetValueUtf8Async(string cacheName, Utf8CacheKey key, CancellationToken cancellationToken) =>
+        _read is PhysicalCache<T> physical
+            ? ValueTask.FromResult(physical.Reader.GetValueUtf8(cacheName, in key, cancellationToken))
+            : GetValueAsync(cacheName, System.Text.Encoding.UTF8.GetString(key.Bytes.Span), cancellationToken);
+
     public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         ValueTask.FromResult(_read.GetValueWithDeadline(Key(cacheName, key), cancellationToken));
 

@@ -1,4 +1,6 @@
 using System;
+using System.Buffers;
+using System.Text.Unicode;
 
 namespace Squirix.Server.Core;
 
@@ -55,6 +57,24 @@ internal static class CacheKeyValidator
         return true;
     }
 
+    internal static bool TryPrepareUtf8(string cacheName, ReadOnlyMemory<byte> key, out Utf8CacheKey lookup)
+    {
+        lookup = default;
+        if (key.IsEmpty || key.Length > MaxLength * 3)
+            return false;
+
+        Span<char> chars = stackalloc char[Math.Min(key.Length, MaxLength)];
+        if (Utf8.ToUtf16(key.Span, chars, out _, out var written, false) != OperationStatus.Done)
+            return false;
+
+        var decoded = chars[..written];
+        if (IsWhiteSpaceOnly(decoded) || ContainsControl(decoded))
+            return false;
+
+        lookup = new Utf8CacheKey(key, CacheKey.LookupHash(cacheName, decoded));
+        return true;
+    }
+
     internal static bool TryValidate(string? key, IRoutedKeyContext? routing, out ServerKeyValidationError error)
     {
         if (routing?.TryGet(key, out var routedError) == true)
@@ -78,13 +98,10 @@ internal static class CacheKeyValidator
     /// <summary>Equivalent to <see cref="char.IsControl(char)" /> over the string: C0 and C1 control ranges.</summary>
     /// <param name="key">The key to inspect.</param>
     /// <returns><see langword="true" /> when the key contains a control character.</returns>
-    private static bool ContainsControl(string key)
-    {
-        var span = key.AsSpan();
-        return span.IndexOfAnyInRange(C0First, C0Last) >= 0 || span.IndexOfAnyInRange(C1First, C1Last) >= 0;
-    }
+    private static bool ContainsControl(ReadOnlySpan<char> key) =>
+        key.IndexOfAnyInRange(C0First, C0Last) >= 0 || key.IndexOfAnyInRange(C1First, C1Last) >= 0;
 
-    private static bool IsWhiteSpaceOnly(string key)
+    private static bool IsWhiteSpaceOnly(ReadOnlySpan<char> key)
     {
         for (var i = 0; i < key.Length; i++)
         {

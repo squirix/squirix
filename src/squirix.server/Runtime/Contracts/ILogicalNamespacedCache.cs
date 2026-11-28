@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
@@ -12,6 +13,9 @@ internal interface ILogicalNamespacedCache<T>
     ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken);
 
     ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken);
+
+    ValueTask<NodeCacheValueResult<T>> GetValueUtf8Async(string cacheName, Utf8CacheKey key, CancellationToken cancellationToken) =>
+        GetValueAsync(cacheName, Encoding.UTF8.GetString(key.Bytes.Span), cancellationToken);
 
     /// <summary>Reads the value of a key with the deadline of its entry, as <see cref="GetEntryAsync" /> reads the entry.</summary>
     /// <param name="cacheName">The cache name.</param>

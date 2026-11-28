@@ -53,6 +53,15 @@ internal sealed class MetricsCacheDecorator<T> : IRequestCache<T>
         request,
         cancellationToken);
 
+    public ValueTask<NodeCacheValueResult<T>> GetValueUtf8Async(string cacheName, Utf8CacheKey key, ICacheRequestContext? request, CancellationToken cancellationToken) => ObserveAsync(
+        cacheName,
+        CacheOperationNames.Get,
+        static (inner, args, context, ct) => inner.GetValueUtf8ForRequestAsync(args.CacheName, in args.Key, ct, context),
+        (CacheName: cacheName, Key: key),
+        CacheOperationClassifier.ClassifyCacheValueResult,
+        request,
+        cancellationToken);
+
     public ValueTask<bool> RemoveAsync(string operationId, string cacheName, string key, ICacheRequestContext? request, CancellationToken cancellationToken) => ObserveAsync(
         cacheName,
         CacheOperationNames.Remove,

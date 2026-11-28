@@ -27,7 +27,6 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     private readonly CacheExpiryAuthority _expiry;
     private readonly Footprint? _footprint;
     private readonly Lock _lock = new();
-    private readonly PhysicalCacheReader _reader;
     private readonly SlotStore<T> _store = new();
     private readonly TimeProvider _timeProvider;
 
@@ -56,7 +55,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         _eviction = new CacheEviction<T>(options, expiry, groupForKey, _store);
         _expiry = expiry;
         _deadlines = new DeadlineIndex(this);
-        _reader = new PhysicalCacheReader(this);
+        Reader = new PhysicalCacheReader(this);
     }
 
     /// <summary>Specifies how a write is admitted and whether its eviction is already decided.</summary>
@@ -95,9 +94,11 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     /// <summary>Gets the keys past their deadline that no committed record removed yet, read from the deadline index.</summary>
     internal ILocalCacheExpiredKeys ExpiredKeys => _deadlines;
 
-    internal ILocalCacheRawReader<T> RawReader => _reader;
+    internal ILocalCacheRawReader<T> RawReader => Reader;
 
     internal bool HasCapacity => _eviction.HasCapacity;
+
+    internal PhysicalCacheReader Reader { get; }
 
     private DateTime UtcNow => _timeProvider.GetUtcNow().UtcDateTime;
 
@@ -118,7 +119,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (!_reader.TryRead(key, false, out var read) || IsExpired(read.ExpiresUtc))
+            if (!Reader.TryRead(key, false, out var read) || IsExpired(read.ExpiresUtc))
                 continue;
 
             yield return (key, read.ToEntry());
@@ -131,7 +132,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     public NodeCacheEntry<T>? GetEntry(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return _reader.TryRead(key, true, out var read) ? read.ToEntry() : null;
+        return Reader.TryRead(key, true, out var read) ? read.ToEntry() : null;
     }
 
     async IAsyncEnumerable<CacheKey> ILocalCacheSnapshotReader<T>.EnumerateLiveKeysAsync([EnumeratorCancellation] CancellationToken cancellationToken)
@@ -146,7 +147,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (!_reader.TryRead(key, false, out var read) || IsExpired(read.ExpiresUtc))
+            if (!Reader.TryRead(key, false, out var read) || IsExpired(read.ExpiresUtc))
                 continue;
 
             yield return key;
@@ -159,13 +160,13 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     public NodeCacheValueResult<T> GetValue(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return _reader.TryRead(key, true, out var read) ? new NodeCacheValueResult<T>(true, read.Value) : new NodeCacheValueResult<T>(false, default);
+        return Reader.TryRead(key, true, out var read) ? new NodeCacheValueResult<T>(true, read.Value) : new NodeCacheValueResult<T>(false, default);
     }
 
     NodeCacheValueRead<T> ILocalCacheReadOperations<T>.GetValueWithDeadline(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return _reader.TryRead(key, true, out var read) ? new NodeCacheValueRead<T>(true, read.Value, read.ExpiresUtc) : default;
+        return Reader.TryRead(key, true, out var read) ? new NodeCacheValueRead<T>(true, read.Value, read.ExpiresUtc) : default;
     }
 
     public ValueTask InsertRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null)
@@ -393,24 +394,8 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         return !expired;
     }
 
-    private bool TryGetLiveLocked(CacheKey key, bool touchOrder, out CacheSlot<T> node)
-    {
-        if (!_store.TryGetLocked(key, out node))
-            return false;
-
-        if (IsExpired(node.ExpiresUtc))
-        {
-            _store.RemoveLocked(in node);
-            UntrackLocked(in node);
-            node = default;
-            return false;
-        }
-
-        if (touchOrder)
-            node.RecordAccess();
-
-        return true;
-    }
+    private bool TryGetLiveLocked(CacheKey key, bool touchOrder, out CacheSlot<T> node) =>
+        _store.TryGetLocked(key, out node) && Reader.CheckLiveLocked(ref node, touchOrder);
 
     /// <summary>Releases an entry that left the store: its recorded bytes leave the total, it leaves the eviction order, and it drops its value and tags.</summary>
     /// <param name="node">The entry already removed from the store.</param>
@@ -423,6 +408,87 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
         node.MarkRemoved();
         _deadlines.CompactLocked();
+    }
+
+    [Immutable]
+    internal sealed class PhysicalCacheReader : ILocalCacheRawReader<T>
+    {
+        private readonly PhysicalCache<T> _owner;
+
+        internal PhysicalCacheReader(PhysicalCache<T> owner)
+        {
+            _owner = owner;
+        }
+
+        public NodeCacheEntry<T>? GetEntryRaw(CacheKey key, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return TryRead(key, false, out var read) ? read.ToEntry() : null;
+        }
+
+        /// <summary>Reads the entry of a key, without the cache lock unless a writer gets in the way or the read must change the cache.</summary>
+        /// <param name="key">The key to read.</param>
+        /// <param name="live">
+        /// <see langword="true" /> to read only a live entry, which counts as an access for the eviction policy and removes an entry past its deadline;
+        /// <see langword="false" /> to read the stored entry, past its deadline or not, without changing the cache.
+        /// </param>
+        /// <param name="read">The fields of the entry.</param>
+        /// <returns><see langword="true" /> when the key holds an entry to return.</returns>
+        /// <remarks>Policy tracking uses the observed node. Reinserting the same key creates a different node.</remarks>
+        internal bool TryRead(CacheKey key, bool live, out CacheEntryRead<T> read) =>
+            TryRead(new CacheLookupKey(key.Namespace, key.Key), key.GetHashCode(), live, out read);
+
+        internal bool TryRead(in CacheLookupKey key, int hash, bool live, out CacheEntryRead<T> read)
+        {
+            var outcome = _owner._store.Read(in key, hash, out read, out var observed);
+            if (outcome == CacheReadOutcome.Absent)
+                return false;
+
+            if (outcome != CacheReadOutcome.Present || (live && _owner.IsExpired(read.ExpiresUtc)))
+                return TryReadWithLock(in key, hash, live, out read);
+
+            if (live && _owner._eviction.Enabled)
+                observed.RecordAccess();
+            return true;
+        }
+
+        internal NodeCacheValueResult<T> GetValueUtf8(string cacheName, in Utf8CacheKey key, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var lookup = new CacheLookupKey(cacheName, default, key.Bytes.Span);
+            return TryRead(in lookup, key.Hash, true, out var read) ? new NodeCacheValueResult<T>(true, read.Value) : default;
+        }
+
+        internal bool CheckLiveLocked(ref CacheSlot<T> node, bool touchOrder)
+        {
+            if (_owner.IsExpired(node.ExpiresUtc))
+            {
+                _owner._store.RemoveLocked(in node);
+                _owner.UntrackLocked(in node);
+                node = default;
+                return false;
+            }
+
+            if (touchOrder)
+                node.RecordAccess();
+
+            return true;
+        }
+
+        private bool TryReadWithLock(in CacheLookupKey key, int hash, bool live, out CacheEntryRead<T> read)
+        {
+            lock (_owner._lock)
+            {
+                if (_owner._store.TryGetLocked(in key, hash, out var node) && (!live || CheckLiveLocked(ref node, true)))
+                {
+                    read = node.ReadLocked();
+                    return true;
+                }
+            }
+
+            read = default;
+            return false;
+        }
     }
 
     private static class WritePreparation
@@ -781,60 +847,5 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         [Immutable]
         [StructLayout(LayoutKind.Auto)]
         private readonly record struct Deadline(long Identity, long Ticks, int Slot, int Generation);
-    }
-
-    [Immutable]
-    private sealed class PhysicalCacheReader : ILocalCacheRawReader<T>
-    {
-        private readonly PhysicalCache<T> _owner;
-
-        internal PhysicalCacheReader(PhysicalCache<T> owner)
-        {
-            _owner = owner;
-        }
-
-        public NodeCacheEntry<T>? GetEntryRaw(CacheKey key, CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return TryRead(key, false, out var read) ? read.ToEntry() : null;
-        }
-
-        /// <summary>Reads the entry of a key, without the cache lock unless a writer gets in the way or the read must change the cache.</summary>
-        /// <param name="key">The key to read.</param>
-        /// <param name="live">
-        /// <see langword="true" /> to read only a live entry, which counts as an access for the eviction policy and removes an entry past its deadline;
-        /// <see langword="false" /> to read the stored entry, past its deadline or not, without changing the cache.
-        /// </param>
-        /// <param name="read">The fields of the entry.</param>
-        /// <returns><see langword="true" /> when the key holds an entry to return.</returns>
-        /// <remarks>Policy tracking uses the observed node. Reinserting the same key creates a different node.</remarks>
-        internal bool TryRead(CacheKey key, bool live, out CacheEntryRead<T> read)
-        {
-            var outcome = _owner._store.Read(key, out read, out var observed);
-            if (outcome == CacheReadOutcome.Absent)
-                return false;
-
-            if (outcome != CacheReadOutcome.Present || (live && _owner.IsExpired(read.ExpiresUtc)))
-                return TryReadWithLock(key, live, out read);
-
-            if (live && _owner._eviction.Enabled)
-                observed.RecordAccess();
-            return true;
-        }
-
-        private bool TryReadWithLock(CacheKey key, bool live, out CacheEntryRead<T> read)
-        {
-            lock (_owner._lock)
-            {
-                if (live ? _owner.TryGetLiveLocked(key, true, out var node) : _owner._store.TryGetLocked(key, out node))
-                {
-                    read = node.ReadLocked();
-                    return true;
-                }
-            }
-
-            read = default;
-            return false;
-        }
     }
 }

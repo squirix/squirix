@@ -87,12 +87,13 @@ internal sealed class SlotStore<T>
 
     /// <summary>Reads the stored entry of a key without the cache lock.</summary>
     /// <param name="key">The key to read.</param>
+    /// <param name="hash">The hash shared by text and UTF-8 lookups.</param>
     /// <param name="read">The fields of the entry when the outcome is <see cref="CacheReadOutcome.Present" />.</param>
     /// <param name="node">The node observed by the lookup.</param>
     /// <returns>Whether the key holds an entry, or <see cref="CacheReadOutcome.Unsure" /> when a writer got in the way and the caller must read under the lock.</returns>
-    internal CacheReadOutcome Read(CacheKey key, out CacheEntryRead<T> read, out CacheSlot<T> node)
+    internal CacheReadOutcome Read(in CacheLookupKey key, int hash, out CacheEntryRead<T> read, out CacheSlot<T> node)
     {
-        var outcome = Find(key, out node);
+        var outcome = Find(in key, hash, out node);
         if (node.Exists)
             return node.Read(out read);
 
@@ -161,12 +162,15 @@ internal sealed class SlotStore<T>
         return page != null && page.ReadIdentity(SlotPageBase.OffsetOf(slot)) == identity ? new CacheSlot<T>(page, slot, identity) : default;
     }
 
-    internal bool TryGetLocked(CacheKey key, int hash, out CacheSlot<T> node)
+    internal bool TryGetLocked(CacheKey key, int hash, out CacheSlot<T> node) =>
+        TryGetLocked(new CacheLookupKey(key.Namespace, key.Key), hash, out node);
+
+    internal bool TryGetLocked(in CacheLookupKey key, int hash, out CacheSlot<T> node)
     {
         var unsure = false;
-        node = Search(_table, key, hash, ref unsure);
+        node = Search(_table, in key, hash, ref unsure);
         if (!node.Exists && _previous is { } previous)
-            node = Search(previous, key, hash, ref unsure);
+            node = Search(previous, in key, hash, ref unsure);
         return node.Exists;
     }
 
@@ -254,7 +258,7 @@ internal sealed class SlotStore<T>
         return -1;
     }
 
-    private CacheSlot<T> Search(BucketTable table, CacheKey key, int hash, ref bool unsure)
+    private CacheSlot<T> Search(BucketTable table, in CacheLookupKey key, int hash, ref bool unsure)
     {
         var index = table.IndexOf(hash);
         for (long visited = 0; visited < table.Length; visited++)
@@ -270,7 +274,7 @@ internal sealed class SlotStore<T>
                 if (identity > 0 && storedHash == hash)
                 {
                     var node = new CacheSlot<T>(page, slot, identity);
-                    if (node.MatchesPublished(key, ref unsure))
+                    if (node.MatchesPublished(in key, ref unsure))
                         return node;
                 }
             }
@@ -283,20 +287,20 @@ internal sealed class SlotStore<T>
 
     /// <summary>Searches for the node of a key without the cache lock.</summary>
     /// <param name="key">The key.</param>
+    /// <param name="hash">The hash shared by text and UTF-8 lookups.</param>
     /// <param name="node">The node found, or <see langword="null" />.</param>
     /// <returns>
     /// <see cref="CacheReadOutcome.Present" /> when found, <see cref="CacheReadOutcome.Absent" /> when not, or <see cref="CacheReadOutcome.Unsure" /> when the
     /// store grew during a search that missed.
     /// </returns>
-    private CacheReadOutcome Find(CacheKey key, out CacheSlot<T> node)
+    private CacheReadOutcome Find(in CacheLookupKey key, int hash, out CacheSlot<T> node)
     {
-        var hash = key.GetHashCode();
         var version = Volatile.Read(ref _topologyVersion);
         var table = Volatile.Read(ref _table);
         var unsure = false;
-        node = Search(table, key, hash, ref unsure);
+        node = Search(table, in key, hash, ref unsure);
         if (!node.Exists && Volatile.Read(ref _previous) is { } previous)
-            node = Search(previous, key, hash, ref unsure);
+            node = Search(previous, in key, hash, ref unsure);
         if (node.Exists)
             return CacheReadOutcome.Present;
         var stable = !unsure && (version & 1) == 0 && Volatile.Read(ref _topologyVersion) == version;
